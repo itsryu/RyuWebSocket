@@ -1,0 +1,38 @@
+{
+  "name": "ryu-socket",
+  "version": "0.0.1",
+  "description": "A WebSocket for my own website.",
+  "main": "/dist/launcher.js",
+  "author": "ryuzaki#0001",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": "x.x",
+    "npm": "9.x"
+  },
+  "scripts": {
+    "build": "npx tsc --project tsconfig.json --pretty --noEmitOnError && echo Arquivos compilados com sucesso!",
+    "clean": "rmdir /s /q dist",
+    "start": "node dist/launcher.js",
+    "dev": "nodemon --watch . --ext js,ts,ejs,css --exec ts-node src/server.ts",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix"
+  },
+  "dependencies": {
+    "discord-api-types": "^0.37.46",
+    "dotenv": "^16.3.1",
+    "winston": "^3.9.0",
+    "ws": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.3.1",
+    "@types/ws": "^8.5.5",
+    "@typescript-eslint/eslint-plugin": "^5.60.0",
+    "@typescript-eslint/parser": "^5.60.0",
+    "eslint": "^8.43.0",
+    "eslint-config-prettier": "^8.8.0",
+    "eslint-plugin-prettier": "^4.2.1",
+    "prettier": "^2.8.8",
+    "typescript": "^5.1.3"
+  }
+}
