@@ -1,6 +1,6 @@
 import WebSocket, { Server } from 'ws';
 import { ClientOptions, MemberPresence } from './types/DiscordInterfaces';
-import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, APIUser } from 'discord-api-types/v10';
+import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, APIUser, GatewaySendPayload, GatewayRequestGuildMembersDataWithUserIds } from 'discord-api-types/v10';
 import { Logger } from './utils/util';
 import EventEmitter from 'node:events';
 import { IncomingMessage } from 'node:http';
@@ -24,7 +24,7 @@ class Gateway {
     }
 
     private send(op: GatewayOpcodes, d?: any | null): void {
-        return this.socket && this.socket?.readyState === WebSocket.OPEN ? this.socket.send(JSON.stringify({ op, d })) : undefined;
+        return this.socket && this.socket.readyState === WebSocket.OPEN ? this.socket.send(JSON.stringify({ op, d })) : undefined;
     };
 
     public async login(token: Snowflake): Promise<Snowflake> {
@@ -103,12 +103,11 @@ class Gateway {
                 }
             });
 
-            setInterval(() => {
-                if (this.socket.readyState === WebSocket.OPEN) this.socket.ping();
-                this.logger.info('Ping succesfully sent!', 'Gateway');
-            }, 30000);
+            const pingInterval = setInterval(() => {
+                this.socket.readyState === WebSocket.OPEN ? this.socket.ping() : clearInterval(pingInterval);
+            }, 41250);
 
-            this.socket.on('pong', () => { 
+            this.socket.on('pong', () => {
                 this.logger.info('Pong received!', 'Gateway');
             });
 
@@ -177,45 +176,46 @@ class Gateway {
             const buffer = Buffer.from(data, 'hex');
             const str = buffer.toString('utf8');
 
-            const { op, d } = JSON.parse(str);
+            const { op, d }: GatewaySendPayload = JSON.parse(str);
 
             switch (op) {
                 case GatewayOpcodes.Heartbeat: {
-                    ws.send(this.PayloadData({ op: GatewayOpcodes.Heartbeat }));
-                    break;
+                    ws.readyState === WebSocket.OPEN ? ws.ping() : clearInterval(pingInterval);
+                    return ws.send(this.PayloadData({ op: GatewayOpcodes.Heartbeat }));
                 };
 
                 case GatewayOpcodes.RequestGuildMembers: {
+                    const { user_ids } = d as GatewayRequestGuildMembersDataWithUserIds;
+
                     this.send(GatewayOpcodes.RequestGuildMembers, {
                         guild_id: process.env.GUILD_ID,
-                        user_ids: d.user_id,
+                        user_ids: user_ids,
                         presences: true,
                         limit: 0
                     });
 
-                    this.logger.info('Requested member.', 'WebSocket');
-
-                    break;
+                    return this.logger.info('Requested a guild member.', 'WebSocket');
                 }
-                default:
-                    ws.send(this.PayloadData({ op: null, t: null, d: null }));
-                    break;
+
+                default: {
+                    return ws.send(this.PayloadData({ op: null, t: null, d: null }));
+                }
             }
         });
 
-        setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN) ws.ping();
-            this.logger.info('Ping succesfully sent!', 'Websocket');
-        }, 30000);
+        const pingInterval = setInterval(() => {
+            ws.readyState === WebSocket.OPEN ? ws.ping() : clearInterval(pingInterval);
+        }, interval);
 
         ws.on('pong', () => {
-            this.logger.info('Pong received', 'WebSocket');
+            this.logger.info('Pong received!', 'WebSocket');
         });
 
         ws.on('close', (code: number) => {
             this.connections.delete(ws);
             this.logger.info(`A connection was disconnected by code: ${code}.`, 'Websocket');
             this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
+            ws.terminate();
         });
 
         ws.on('error', (error) => {
@@ -223,6 +223,7 @@ class Gateway {
             this.logger.error(`A connection was disconnected by error: ${error.message}.`, 'Websocket');
             this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
             this.logger.warn(error.stack as string, 'Websocket');
+            ws.terminate();
         });
 
         this.logger.info('A new connection was opened.', 'Websocket');
