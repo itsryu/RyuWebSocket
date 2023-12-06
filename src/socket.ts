@@ -62,9 +62,7 @@ class Gateway {
 
                     this.logger.info(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`, 'Gateway');
 
-                    setInterval(() => {
-                        this.send(GatewayOpcodes.Heartbeat, null);
-                    }, d.heartbeat_interval);
+                    setInterval(() => this.send(GatewayOpcodes.Heartbeat, null), d.heartbeat_interval);
                 };
 
                 if (op === GatewayOpcodes.Reconnect) {
@@ -108,7 +106,7 @@ class Gateway {
             }, 41250);
 
             this.socket.on('pong', () => {
-                this.logger.info('Pong received!', 'Gateway');
+                this.logger.info('Pong received from Gateway!', 'Gateway');
             });
 
             this.socket.on('close', (code: number) => {
@@ -165,9 +163,7 @@ class Gateway {
         const ip = req.headers['x-forwarded-for'];
         const interval = 41250;
 
-        setInterval(() => {
-            ws.send(this.PayloadData({ op: GatewayOpcodes.Heartbeat, d: { heartbeat_interval: interval } }));
-        }, interval);
+        setInterval(() => ws.send(this.PayloadData({ op: GatewayOpcodes.Heartbeat, d: { heartbeat_interval: interval } })), interval);
 
         this.on(GatewayDispatchEvents.PresenceUpdate, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: data })));
         this.on(GatewayDispatchEvents.GuildMembersChunk, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data })));
@@ -194,7 +190,7 @@ class Gateway {
                         limit: 0
                     });
 
-                    return this.logger.info('Requested a guild member.', 'WebSocket');
+                    return this.logger.info(`[${ip}] requested a guild member.`, 'WebSocket');
                 }
 
                 default: {
@@ -208,19 +204,19 @@ class Gateway {
         }, interval);
 
         ws.on('pong', () => {
-            this.logger.info('Pong received!', 'WebSocket');
+            this.logger.info(`Pong received from ${ip}!`, 'WebSocket');
         });
 
         ws.on('close', (code: number) => {
             this.connections.delete(ws);
-            this.logger.info(`A connection was disconnected by code: ${code}.`, 'Websocket');
+            this.logger.info(`${ip} was disconnected by code: ${code}.`, 'Websocket');
             this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
             ws.terminate();
         });
 
         ws.on('error', (error) => {
             this.connections.delete(ws);
-            this.logger.error(`A connection was disconnected by error: ${error.message}.`, 'Websocket');
+            this.logger.error(`${ip} was disconnected by error: ${error.message}.`, 'Websocket');
             this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
             this.logger.warn(error.stack as string, 'Websocket');
             ws.terminate();
