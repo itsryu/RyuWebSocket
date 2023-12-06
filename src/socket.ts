@@ -211,6 +211,7 @@ class Gateway {
             this.connections.delete(ws);
             this.logger.info(`${ip} was disconnected by code: ${code}.`, 'Websocket');
             this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
+            this.event.removeAllListeners();
             ws.terminate();
         });
 
@@ -219,6 +220,7 @@ class Gateway {
             this.logger.error(`${ip} was disconnected by error: ${error.message}.`, 'Websocket');
             this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
             this.logger.warn(error.stack as string, 'Websocket');
+            this.event.removeAllListeners();
             ws.terminate();
         });
 
