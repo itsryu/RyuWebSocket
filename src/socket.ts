@@ -146,11 +146,15 @@ class Gateway {
     }
 
     public on(event: GatewayDispatchEvents, listener: (...args: string[]) => Promise<void> | void): EventEmitter {
-        return this.event.on(event, listener as any);
+        return this.event.on(event, listener);
+    }
+
+    public off(event: GatewayDispatchEvents, listener: (...args: string[]) => Promise<void> | void): EventEmitter {
+        return this.event.off(event, listener);
     }
 
     public once(event: GatewayDispatchEvents, listener: (...args: string[]) => Promise<void> | void): EventEmitter {
-        return this.event.once(event, listener as any);
+        return this.event.once(event, listener);
     }
 
     private PayloadData({ op, d, t }: { op: GatewayOpcodes | null, d?: any, t?: any }): string {
@@ -204,14 +208,15 @@ class Gateway {
         }, interval);
 
         ws.on('pong', () => {
-            this.logger.info(`Pong received from ${ip}!`, 'WebSocket');
+            this.logger.info(`Pong received from: ${ip}!`, 'WebSocket');
         });
 
         ws.on('close', (code: number) => {
             this.connections.delete(ws);
             this.logger.info(`${ip} was disconnected by code: ${code}.`, 'Websocket');
             this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
-            this.event.removeAllListeners();
+            this.off(GatewayDispatchEvents.PresenceUpdate, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: data })));
+            this.off(GatewayDispatchEvents.GuildMembersChunk, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data })));
             ws.terminate();
         });
 
@@ -220,7 +225,8 @@ class Gateway {
             this.logger.error(`${ip} was disconnected by error: ${error.message}.`, 'Websocket');
             this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
             this.logger.warn(error.stack as string, 'Websocket');
-            this.event.removeAllListeners();
+            this.off(GatewayDispatchEvents.PresenceUpdate, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: data })));
+            this.off(GatewayDispatchEvents.GuildMembersChunk, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data })));
             ws.terminate();
         });
 
