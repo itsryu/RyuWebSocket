@@ -14,7 +14,7 @@ class Gateway {
     public logger: Logger = new Logger();
     private readonly options: ClientOptions;
     private member!: MemberPresence;
-    public connections: Set<WebSocket> = new Set();
+    public connections: Map<string, WebSocket> = new Map();
 
     constructor(options: ClientOptions) {
         this.options = options;
@@ -49,6 +49,10 @@ class Gateway {
                     },
                     large_threshold: 50
                 });
+
+                const pingInterval = setInterval(() => {
+                    this.socket.readyState === WebSocket.OPEN ? this.socket.ping() : (clearInterval(pingInterval), this.reconnectWebSocket(token));
+                }, 41250);
 
                 this.logger.info("WebSocket it's on CONNECTED state.", 'Gateway');
             });
@@ -101,10 +105,6 @@ class Gateway {
                 }
             });
 
-            const pingInterval = setInterval(() => {
-                this.socket.readyState === WebSocket.OPEN ? this.socket.ping() : clearInterval(pingInterval);
-            }, 41250);
-
             this.socket.on('pong', () => {
                 this.logger.info('Pong received from Gateway!', 'Gateway');
             });
@@ -132,9 +132,10 @@ class Gateway {
             return this.logger.error('Max connection attempts reached..', 'Gateway');
         }
 
-        setTimeout(() => {
+        const reconnectSocketInterval = setTimeout(() => {
             this.connect(token)
                 .then(() => {
+                    clearInterval(reconnectSocketInterval);
                     this.logger.info('Reconnected successfully to Discord gateway.', 'Gateway - Reconnect');
                 })
                 .catch((err) => {
@@ -162,15 +163,21 @@ class Gateway {
     }
 
     private handleConnection(ws: WebSocket, req: IncomingMessage) {
-        this.connections.add(ws);
+        const id = Math.random().toString(36).substring(7);
+
+        this.connections.set(id, ws);
 
         const ip = req.headers['x-forwarded-for'];
         const interval = 41250;
 
         setInterval(() => ws.send(this.PayloadData({ op: GatewayOpcodes.Heartbeat, d: { heartbeat_interval: interval } })), interval);
 
-        this.on(GatewayDispatchEvents.PresenceUpdate, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: data })));
-        this.on(GatewayDispatchEvents.GuildMembersChunk, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data })));
+        this.event.on(GatewayDispatchEvents.PresenceUpdate, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: data })));
+        this.event.on(GatewayDispatchEvents.GuildMembersChunk, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data })));
+
+        const pingInterval = setInterval(() => {
+            ws.readyState === WebSocket.OPEN ? ws.ping() : clearInterval(pingInterval);
+        }, interval);
 
         ws.on('message', (data: string) => {
             const buffer = Buffer.from(data, 'hex');
@@ -194,7 +201,7 @@ class Gateway {
                         limit: 0
                     });
 
-                    return this.logger.info(`[${ip}] requested a guild member.`, 'WebSocket');
+                    return this.logger.info(`[${id}] - [${ip}]: requested a guild member.`, 'WebSocket');
                 }
 
                 default: {
@@ -203,36 +210,33 @@ class Gateway {
             }
         });
 
-        const pingInterval = setInterval(() => {
-            ws.readyState === WebSocket.OPEN ? ws.ping() : clearInterval(pingInterval);
-        }, interval);
-
         ws.on('pong', () => {
-            this.logger.info(`Pong received from: ${ip}!`, 'WebSocket');
+            this.logger.info(`[${id}] - [${ip}]: pong received!`, 'WebSocket');
         });
 
         ws.on('close', (code: number) => {
-            this.connections.delete(ws);
-            this.logger.info(`${ip} was disconnected by code: ${code}.`, 'Websocket');
+            this.connections.delete(id);
+
+            this.logger.warn(`[${id}] - [${ip}]: was disconnected by code: ${code}.`, 'Websocket');
             this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
-            this.off(GatewayDispatchEvents.PresenceUpdate, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: data })));
-            this.off(GatewayDispatchEvents.GuildMembersChunk, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data })));
-            ws.terminate();
+
+            clearInterval(pingInterval);
         });
 
         ws.on('error', (error) => {
-            this.connections.delete(ws);
-            this.logger.error(`${ip} was disconnected by error: ${error.message}.`, 'Websocket');
+            this.connections.delete(id);
+
+            this.logger.error(`[${id}] - [${ip}]: was disconnected by error: ${error.message}.`, 'Websocket');
             this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
             this.logger.warn(error.stack as string, 'Websocket');
-            this.off(GatewayDispatchEvents.PresenceUpdate, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: data })));
-            this.off(GatewayDispatchEvents.GuildMembersChunk, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data })));
+
             ws.terminate();
+            clearInterval(pingInterval);
         });
 
         this.logger.info('A new connection was opened.', 'Websocket');
         this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
-        this.logger.info('New connection from IP: ' + ip, 'WebSocket');
+        this.logger.info(`New connection [${id}] from IP: ${ip}`, 'WebSocket');
     }
 }
 
