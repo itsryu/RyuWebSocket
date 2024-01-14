@@ -126,12 +126,26 @@ class Gateway {
             });
 
             this.socket.on('close', (code: number) => {
+                const embed = new EmbedBuilder()
+                    .setColor(0xff0000)
+                    .setTitle('Gateway Connection')
+                    .setDescription(`Gateway connection was closed with code: ${code}`)
+                    .setTimestamp(new Date().toISOString());
+
+                this.webhookLog({ embeds: [embed] });
                 this.logger.warn(`Error code: ${code}`, 'Gateway');
                 reject(code);
                 this.reconnectWebSocket(token);
             });
 
             this.socket.on('error', (error) => {
+                const embed = new EmbedBuilder()
+                    .setColor(0xff0000)
+                    .setTitle('Gateway Connection')
+                    .setDescription(`Error on Gateway connection: ${error}`)
+                    .setTimestamp(new Date().toISOString());
+
+                this.webhookLog({ embeds: [embed] });
                 this.logger.error('Error on Websocket connection: ' + error, 'Gateway');
                 reject(error);
                 this.reconnectWebSocket(token);
@@ -289,6 +303,7 @@ class Gateway {
                 .setColor(0xff0000)
                 .setTitle(`[${id}] - Connection closed!`)
                 .setDescription(`[${id}] - [${ip}]: was disconnected by code: ${code}.`)
+                .setFooter({ text: `Connections: ${this.connections.size}` })
                 .setTimestamp(new Date().toISOString());
 
             this.webhookLog({ embeds: [embed] });
@@ -305,6 +320,7 @@ class Gateway {
                 .setColor(0xff0000)
                 .setTitle(`[${id}] - Connection error!`)
                 .setDescription(`[${id}] - [${ip}]: was disconnected by error: ${error.message}.`)
+                .setFooter({ text: `Connections: ${this.connections.size}` })
                 .setTimestamp(new Date().toISOString());
 
             this.webhookLog({ embeds: [embed] });
@@ -319,7 +335,7 @@ class Gateway {
         const embed = new EmbedBuilder()
             .setColor(0x1ed760)
             .setTitle(`[${id}] - New WebSocket Connection`)
-            .setURL(`https://tools.keycdn.com/geo?host=${typeof (ip) === 'object' ? ip[0] : ip}`)
+            .setURL(`https://tools.keycdn.com/geo?host=${typeof (ip) === 'object' ? ip[0] : ip?.split(',')[0]}`)
             .setDescription(`[${id}] - [${ip}]: connected successfully to websocket.`)
             .setFooter({ text: `Connections: ${this.connections.size}` })
             .setTimestamp(new Date().toISOString());
