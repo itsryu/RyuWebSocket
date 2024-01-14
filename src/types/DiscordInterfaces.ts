@@ -29,7 +29,7 @@ interface User {
   username: string;
   global_name: string;
   avatar: string;
-  avatar_decoration_data: any; // You might want to define the type if available
+  avatar_decoration_data: any;
   discriminator: string;
   public_flags: number;
   flags: number;
@@ -43,11 +43,11 @@ interface UserProfile {
   bio: string;
   accent_color: number;
   pronouns: string;
-  profile_effect: any; // You might want to define the type if available
+  profile_effect: any;
   banner: string;
   theme_colors: number[];
-  popout_animation_particle_type: any; // You might want to define the type if available
-  emoji: any; // You might want to define the type if available
+  popout_animation_particle_type: any; 
+  emoji: any; 
 }
 
 interface UserBadges {
@@ -71,7 +71,7 @@ export interface DiscordUser {
   profile_themes_experiment_bucket: number;
   user_profile: UserProfile;
   badges: UserBadges[];
-  guild_badges: any[]; // You might want to define the type if available
+  guild_badges: any[];
   mutual_guilds: MutualGuild[];
   legacy_username: string;
 }
