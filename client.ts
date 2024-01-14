@@ -7,6 +7,6 @@ export class Socket extends Gateway {
     }
 
     async initialize() {
-        await super.login(process.env.TOKEN);
+        await super.login(process.env.CLIENT_TOKEN);
     }
 }

@@ -2,7 +2,7 @@ import { config } from 'dotenv';
 import { Socket } from './client';
 import { GatewayIntentBits } from 'discord-api-types/v10';
 
-config();
+config({ path: './.env' });
 
 new Socket({
     intents: [

@@ -1,9 +1,10 @@
 import WebSocket, { Server } from 'ws';
-import { ClientOptions, MemberPresence } from './types/DiscordInterfaces';
-import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, APIUser, GatewaySendPayload, GatewayRequestGuildMembersDataWithUserIds } from 'discord-api-types/v10';
+import { ClientOptions, DiscordUser, MemberPresence } from './types/DiscordInterfaces';
+import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewaySendPayload, GatewayRequestGuildMembersDataWithUserIds, RESTPostAPIWebhookWithTokenJSONBody } from 'discord-api-types/v10';
 import { Logger } from './utils/util';
 import EventEmitter from 'node:events';
 import { IncomingMessage } from 'node:http';
+import { EmbedBuilder } from './structures/EmbedConstructor';
 
 let connectionAttempt = 0;
 
@@ -38,6 +39,12 @@ class Gateway {
         this.logger.info('Connecting to Discord Gateway...', 'Gateway');
 
         return new Promise((resolve, reject) => {
+            const embed = new EmbedBuilder()
+                .setColor(0x1ed760)
+                .setTitle('Gateway Connection')
+                .setDescription('WebSocket connection was opened successfully!')
+                .setTimestamp(new Date().toISOString());
+
             this.socket.on('open', () => {
                 this.send(GatewayOpcodes.Identify, {
                     token: token,
@@ -50,23 +57,31 @@ class Gateway {
                     large_threshold: 50
                 });
 
-                const pingInterval = setInterval(() => {
-                    this.socket.readyState === WebSocket.OPEN ? this.socket.ping() : (clearInterval(pingInterval), this.reconnectWebSocket(token));
-                }, 41250);
-
                 this.logger.info("WebSocket it's on CONNECTED state.", 'Gateway');
+                this.webhookLog({ embeds: [embed] });
             });
 
             this.socket.on('message', async (data: string) => {
                 const { op, t, d }: GatewayReceivePayload = JSON.parse(data);
 
+
+
                 if (op === GatewayOpcodes.Hello) {
                     const jitter = Math.random();
                     const firstWait = Math.floor(d.heartbeat_interval * jitter);
 
-                    this.logger.info(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`, 'Gateway');
+                    const embed = new EmbedBuilder()
+                        .setColor(0xffce47)
+                        .setTitle('Gateway Connection')
+                        .setDescription(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`)
+                        .setTimestamp(new Date().toISOString());
 
-                    setInterval(() => this.send(GatewayOpcodes.Heartbeat, null), d.heartbeat_interval);
+                    this.logger.info(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`, 'Gateway');
+                    this.webhookLog({ embeds: [embed] });
+
+                    const pingInterval = setInterval(() => {
+                        this.socket.readyState === WebSocket.OPEN ? (this.socket.ping(), this.send(GatewayOpcodes.Heartbeat, null)) : (clearInterval(pingInterval), this.reconnectWebSocket(token));
+                    }, d.heartbeat_interval);
                 };
 
                 if (op === GatewayOpcodes.Reconnect) {
@@ -80,13 +95,14 @@ class Gateway {
                     // guild member chunk event
                     if ([GatewayDispatchEvents.GuildMembersChunk].includes(t) && members.length) {
                         if (Object.keys(d).length) {
-                            const data = await fetch(`https://discord.com/api/v10/users/${members[0].user?.id}`, {
+                            const data: DiscordUser = await fetch(`https://discord.com/api/v10/users/${members[0].user?.id}/profile`, {
+                                method: 'GET',
                                 headers: {
-                                    Authorization: `Bot ${token}`
+                                    Authorization: `${process.env.USER_TOKEN}`
                                 }
-                            }).then((res) => res.json()) as APIUser;
+                            }).then((res) => res.json());
 
-                            this.member = { ...this.member, activities: presences?.[0].activities, user: data, members, guild_id, presences };
+                            this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
 
                             this.event.emit(GatewayDispatchEvents.GuildMembersChunk, this.member);
                         };
@@ -126,19 +142,47 @@ class Gateway {
     };
 
     private reconnectWebSocket(token: Snowflake): void {
+        const embed = new EmbedBuilder()
+            .setColor(0xff0000)
+            .setTitle('Gateway Connection Reconnect Attempt')
+            .setDescription('WebSocket connection was closed!')
+            .setTimestamp(new Date().toISOString());
+
+        this.webhookLog({ embeds: [embed] });
         this.logger.warn('Attempting to reconnect, wait..', 'Gateway');
 
         if (connectionAttempt >= 5) {
+            const embed = new EmbedBuilder()
+                .setColor(0xff0000)
+                .setTitle('Gateway Connection Reconnect Attempt')
+                .setDescription('Max connection attempts reached!')
+                .setTimestamp(new Date().toISOString());
+
+            this.webhookLog({ embeds: [embed] });
             return this.logger.error('Max connection attempts reached..', 'Gateway');
         }
 
         const reconnectSocketInterval = setTimeout(() => {
             this.connect(token)
                 .then(() => {
+                    const embed = new EmbedBuilder()
+                        .setColor(0x1ed760)
+                        .setTitle('Gateway Connection Reconnect Attempt')
+                        .setDescription('Reconnected successfully to Discord gateway.')
+                        .setTimestamp(new Date().toISOString());
+
+                    this.webhookLog({ embeds: [embed] });
                     clearInterval(reconnectSocketInterval);
                     this.logger.info('Reconnected successfully to Discord gateway.', 'Gateway - Reconnect');
                 })
                 .catch((err) => {
+                    const embed = new EmbedBuilder()
+                        .setColor(0xff0000)
+                        .setTitle('Gateway Connection Reconnect Attempt')
+                        .setDescription(`Error while tryng to reconnect to Discord gateway: ${err}`)
+                        .setTimestamp(new Date().toISOString());
+
+                    this.webhookLog({ embeds: [embed] });
                     this.logger.error(`Error while tryng to reconnect to Discord gateway: ${err}`, 'Gateway - Reconnect');
                 });
         }, 1000 * 15);
@@ -158,8 +202,18 @@ class Gateway {
         return this.event.once(event, listener);
     }
 
-    private PayloadData({ op, d, t }: { op: GatewayOpcodes | null, d?: any, t?: any }): string {
+    private payloadData({ op, d, t }: { op: GatewayOpcodes | null, d?: any, t?: any }): string {
         return JSON.stringify({ op: op ?? null, t: t ?? null, d: d ?? null });
+    }
+
+    private async webhookLog(data: RESTPostAPIWebhookWithTokenJSONBody): Promise<void> {
+        await fetch(process.env.WEBHOOK_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data, null, 2)
+        });
     }
 
     private handleConnection(ws: WebSocket, req: IncomingMessage) {
@@ -170,10 +224,10 @@ class Gateway {
         const ip = req.headers['x-forwarded-for'];
         const interval = 41250;
 
-        setInterval(() => ws.send(this.PayloadData({ op: GatewayOpcodes.Heartbeat, d: { heartbeat_interval: interval } })), interval);
+        setInterval(() => ws.send(this.payloadData({ op: GatewayOpcodes.Heartbeat, d: { heartbeat_interval: interval } })), interval);
 
-        this.event.on(GatewayDispatchEvents.PresenceUpdate, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: data })));
-        this.event.on(GatewayDispatchEvents.GuildMembersChunk, (data) => ws.send(this.PayloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data })));
+        this.event.on(GatewayDispatchEvents.PresenceUpdate, (data) => ws.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: data })));
+        this.event.on(GatewayDispatchEvents.GuildMembersChunk, (data) => ws.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data })));
 
         const pingInterval = setInterval(() => {
             ws.readyState === WebSocket.OPEN ? ws.ping() : clearInterval(pingInterval);
@@ -188,7 +242,7 @@ class Gateway {
             switch (op) {
                 case GatewayOpcodes.Heartbeat: {
                     ws.readyState === WebSocket.OPEN ? ws.ping() : clearInterval(pingInterval);
-                    return ws.send(this.PayloadData({ op: GatewayOpcodes.Heartbeat }));
+                    return ws.send(this.payloadData({ op: GatewayOpcodes.Heartbeat }));
                 };
 
                 case GatewayOpcodes.RequestGuildMembers: {
@@ -201,22 +255,43 @@ class Gateway {
                         limit: 0
                     });
 
+                    const embed = new EmbedBuilder()
+                        .setColor(0x1ed760)
+                        .setTitle(`[${id}] - Connection request!`)
+                        .setDescription(`[${id}] - [${ip}]: requested a guild member.`)
+                        .setTimestamp(new Date().toISOString());
+
+                    this.webhookLog({ embeds: [embed] });
                     return this.logger.info(`[${id}] - [${ip}]: requested a guild member.`, 'WebSocket');
                 }
 
                 default: {
-                    return ws.send(this.PayloadData({ op: null, t: null, d: null }));
+                    return ws.send(this.payloadData({ op: null, t: null, d: null }));
                 }
             }
         });
 
         ws.on('pong', () => {
+            const embed = new EmbedBuilder()
+                .setColor(0x1ed760)
+                .setTitle(`[${id}] - Connection pong!`)
+                .setDescription(`[${id}] - [${ip}]: pong received!`)
+                .setTimestamp(new Date().toISOString());
+
+            this.webhookLog({ embeds: [embed] });
             this.logger.info(`[${id}] - [${ip}]: pong received!`, 'WebSocket');
         });
 
         ws.on('close', (code: number) => {
             this.connections.delete(id);
 
+            const embed = new EmbedBuilder()
+                .setColor(0xff0000)
+                .setTitle(`[${id}] - Connection closed!`)
+                .setDescription(`[${id}] - [${ip}]: was disconnected by code: ${code}.`)
+                .setTimestamp(new Date().toISOString());
+
+            this.webhookLog({ embeds: [embed] });
             this.logger.warn(`[${id}] - [${ip}]: was disconnected by code: ${code}.`, 'Websocket');
             this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
 
@@ -226,6 +301,13 @@ class Gateway {
         ws.on('error', (error) => {
             this.connections.delete(id);
 
+            const embed = new EmbedBuilder()
+                .setColor(0xff0000)
+                .setTitle(`[${id}] - Connection error!`)
+                .setDescription(`[${id}] - [${ip}]: was disconnected by error: ${error.message}.`)
+                .setTimestamp(new Date().toISOString());
+
+            this.webhookLog({ embeds: [embed] });
             this.logger.error(`[${id}] - [${ip}]: was disconnected by error: ${error.message}.`, 'Websocket');
             this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
             this.logger.warn(error.stack as string, 'Websocket');
@@ -234,9 +316,18 @@ class Gateway {
             clearInterval(pingInterval);
         });
 
+        const embed = new EmbedBuilder()
+            .setColor(0x1ed760)
+            .setTitle(`[${id}] - New WebSocket Connection`)
+            .setURL(`https://tools.keycdn.com/geo?host=${typeof (ip) === 'object' ? ip[0] : ip}`)
+            .setDescription(`[${id}] - [${ip}]: connected successfully to websocket.`)
+            .setFooter({ text: `Connections: ${this.connections.size}` })
+            .setTimestamp(new Date().toISOString());
+
+        this.webhookLog({ embeds: [embed] });
+        this.logger.info(`[${id}] - [${ip}]: was connected successfully.`, 'WebSocket');
         this.logger.info('A new connection was opened.', 'Websocket');
         this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
-        this.logger.info(`New connection [${id}] from IP: ${ip}`, 'WebSocket');
     }
 }
 
