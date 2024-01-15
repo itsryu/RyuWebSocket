@@ -254,6 +254,15 @@ class Gateway {
                     }, d.heartbeat_interval);
                 };
 
+                if (op === GatewayOpcodes.Heartbeat) {
+                    this.logger.info('Received heartbeat opcode, sending heartbeat..', 'Gateway');
+                    this.send(GatewayOpcodes.Heartbeat, null);
+                }
+
+                if (op === GatewayOpcodes.HeartbeatAck) {
+                    this.logger.info('Received heartbeat ack opcode.', 'Gateway');
+                }
+
                 if (op === GatewayOpcodes.Reconnect) {
                     const embed = new EmbedBuilder()
                         .setColor(0xffce47)
@@ -453,7 +462,7 @@ class Gateway {
         });
 
         ws.on('pong', () => {
-            this.logger.info(`[${id}] - [${ip}]: pong received!`, 'WebSocket');
+            this.logger.info(`[${id}] - [${ip}]: pong received from connection!`, 'WebSocket');
         });
 
         ws.on('close', (code: number) => {
