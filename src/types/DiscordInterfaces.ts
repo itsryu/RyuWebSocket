@@ -5,7 +5,7 @@ export interface ClientOptions {
 }
 
 export interface MemberPresence extends GatewayPresenceUpdateDispatchData, GatewayGuildMembersChunkDispatchData {
-  data: DiscordUser
+  data: DiscordUser | undefined
 }
 
 interface ConnectedAccount {

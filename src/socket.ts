@@ -142,7 +142,9 @@ class Gateway {
                                 headers: {
                                     Authorization: `${process.env.USER_TOKEN}`
                                 }
-                            }).then((res) => res.json());
+                            })
+                                .then((res) => res.json())
+                                .catch(() => {});
 
                             this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
 
