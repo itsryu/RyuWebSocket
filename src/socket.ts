@@ -123,7 +123,7 @@ class Gateway {
 
                         const embed = new EmbedBuilder()
                             .setColor(0x1ed760)
-                            .setTitle('Gateway Connection')
+                            .setTitle('Gateway Resume Connection')
                             .setDescription('Received ready event, connection established!')
                             .setTimestamp(new Date().toISOString());
 
@@ -145,7 +145,7 @@ class Gateway {
                                 }
                             })
                                 .then((res) => res.data)
-                                .catch(() => {});
+                                .catch(() => this.logger.error('Error while fetching user profile', 'Gateway Resume'));
 
                             this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
 
@@ -319,7 +319,7 @@ class Gateway {
                                 }
                             })
                                 .then((res) => res.data)
-                                .catch(() => {});
+                                .catch(() => this.logger.error('Error while fetching user profile', 'Gateway'));
 
                             this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
 
