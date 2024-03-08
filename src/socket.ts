@@ -145,7 +145,7 @@ class Gateway {
                                 }
                             })
                                 .then((res) => res.data)
-                                .catch(() => this.logger.error('Error while fetching user profile', 'Gateway Resume'));
+                                .catch((err) => this.logger.error('Error while fetching user profile: ' + err, 'Gateway Resume'));
 
                             this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
 
@@ -319,7 +319,7 @@ class Gateway {
                                 }
                             })
                                 .then((res) => res.data)
-                                .catch(() => this.logger.error('Error while fetching user profile', 'Gateway'));
+                                .catch((err) => this.logger.error('Error while fetching user profile: ' + err, 'Gateway'));
 
                             this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
 
