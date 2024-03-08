@@ -312,12 +312,14 @@ class Gateway {
                         const { members, presences, guild_id } = d as GatewayGuildMembersChunkDispatchData;
 
                         if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
-                            const data: DiscordUser = await fetch(`https://discord.com/api/v10/users/${members[0].user?.id}/profile`, {
+                            const data: DiscordUser = await axios.get(`https://discord.com/api/v10/users/${members[0].user?.id}/profile`, {
                                 method: 'GET',
                                 headers: {
                                     Authorization: `${process.env.USER_TOKEN}`
                                 }
-                            }).then((res) => res.json());
+                            })
+                                .then((res) => res.data)
+                                .catch(() => {});
 
                             this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
 
