@@ -193,9 +193,9 @@ class Gateway {
                 reject(code);
 
                 if (code === 1000 || code === 1001) {
-                    this.logger.info('Connection closed successfully.', 'Gateway Resume');
+                    this.logger.info('Connection closed successfully.', 'Gateway');
                 } else {
-                    this.logger.warn('Connection closed with errors. Attempt to reconnect', 'Gateway Resume');
+                    this.logger.warn('Connection closed with errors. Attempt to reconnect', 'Gateway');
                     this.establishConnection(token);
                 }
             });
@@ -431,7 +431,7 @@ class Gateway {
                             .setTimestamp(new Date().toISOString());
 
                         this.webhookLog({ embeds: [embed] });
-                        this.logger.info(`[${id}] - [${ip}]: requested a guild member.`, 'WebSocket');
+                        this.logger.info(`[${id}] - [${ip}]: requested a guild member.`, 'Connection');
                         break;
                     }
 
@@ -443,7 +443,7 @@ class Gateway {
             });
 
             connection?.on('pong', () => {
-                this.logger.info(`[${id}] - [${ip}]: pong received from connection!`, 'WebSocket');
+                this.logger.info(`[${id}] - [${ip}]: pong received from connection!`, 'Connection');
             });
 
             connection?.on('close', (code: number) => {
@@ -455,8 +455,8 @@ class Gateway {
                     .setTimestamp(new Date().toISOString());
 
                 this.webhookLog({ embeds: [embed] });
-                this.logger.warn(`[${id}] - [${ip}]: was disconnected by code: ${code}.`, 'Websocket');
-                this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
+                this.logger.warn(`[${id}] - [${ip}]: was disconnected by code: ${code}.`, 'Connection');
+                this.logger.info(`${this.connections.size} connections opened.`, 'Connection');
 
                 connection?.close();
                 this.connections.delete(id);
@@ -472,9 +472,9 @@ class Gateway {
                     .setTimestamp(new Date().toISOString());
 
                 this.webhookLog({ embeds: [embed] });
-                this.logger.error(`[${id}] - [${ip}]: was disconnected by error: ${error.message}.`, 'Websocket');
-                this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
-                this.logger.warn(error.stack as string, 'Websocket');
+                this.logger.error(`[${id}] - [${ip}]: was disconnected by error: ${error.message}.`, 'Connection');
+                this.logger.info(`${this.connections.size} connections opened.`, 'Connection');
+                this.logger.warn(error.stack as string, 'Connection');
 
                 connection?.close();
                 this.connections.delete(id);
@@ -483,16 +483,16 @@ class Gateway {
 
             const embed = new EmbedBuilder()
                 .setColor(0x1ed760)
-                .setTitle(`[${id}] - New WebSocket Connection`)
+                .setTitle(`[${id}] - New Connection`)
                 .setURL(`https://tools.keycdn.com/geo?host=${ip}`)
                 .setDescription(`[${id}] - [${ip}]: connected successfully to websocket.`)
                 .setFooter({ text: `Connections: ${this.connections.size}` })
                 .setTimestamp(new Date().toISOString());
 
             this.webhookLog({ embeds: [embed] });
-            this.logger.info(`[${id}] - [${ip}]: was connected successfully.`, 'WebSocket');
-            this.logger.info('A new connection was opened.', 'Websocket');
-            this.logger.info(`${this.connections.size} connections opened.`, 'Websocket');
+            this.logger.info(`[${id}] - [${ip}]: was connected successfully.`, 'Connection');
+            this.logger.info('A new connection was opened.', 'Connection');
+            this.logger.info(`${this.connections.size} connections opened.`, 'Connection');
         }
     }
 
