@@ -405,7 +405,7 @@ class Gateway {
             connection?.on('message', (data: string) => {
                 const buffer = Buffer.from(data, 'hex');
                 const str = buffer.toString('utf8');
-                const { op, d }: GatewaySendPayload = JSON.parse(str)
+                const { op, d }: GatewaySendPayload = JSON.parse(str);
 
                 switch (op) {
                     case GatewayOpcodes.Heartbeat: {
