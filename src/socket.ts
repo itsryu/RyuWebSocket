@@ -278,7 +278,7 @@ class Gateway {
                 const { user, activities, status, guild_id } = d as GatewayPresenceUpdateDispatchData;
 
                 if (Object.keys(d).length && user.id === process.env.USER_ID) {
-                    this.member = { ...this.member, activities, status, guild_id };
+                    this.member = { ...this.member, user, activities, status, guild_id };
 
                     this.event.emit(GatewayDispatchEvents.PresenceUpdate, this.member);
                 }
