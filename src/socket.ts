@@ -23,12 +23,8 @@ class Gateway {
         this.options = options;
 
         process.on('uncaughtException', (err: Error) => this.logger.error(err.stack as string, 'uncaughtException'));
-        process.on('unhandledRejection', (err) => this.logger.error(err as string, 'unhandledRejection'));
+        process.on('unhandledRejection', (err: Error) => this.logger.error(err.stack as string, 'unhandledRejection'));
     }
-
-    private send(op: GatewayOpcodes, d?: any | null): void {
-        return this.socket && this.socket.readyState === WebSocket.OPEN ? this.socket.send(JSON.stringify({ op, d })) : undefined;
-    };
 
     public async login(token: Snowflake): Promise<Snowflake> {
         await this.establishConnection(token);
@@ -36,20 +32,22 @@ class Gateway {
     }
 
     private async establishConnection(token: Snowflake): Promise<void> {
-        if (this.session && this.sequence !== undefined) {
-            await this.resumeConnection(token);
+        if (this.session && this.sequence != undefined) {
+            this.socket = await this.resumeConnection(token);
         } else {
-            await this.connect(token);
+            this.socket = await this.connect(token);
         }
     }
 
-    private connect(token: Snowflake): Promise<void> {
+    // connect to gateway
+    private connect(token: Snowflake): Promise<WebSocket> {
         this.socket = new WebSocket(process.env.GATEWAY_URL);
 
         this.logger.info('Connecting to Discord Gateway...', 'Gateway');
 
         return new Promise((resolve, reject) => {
             this.socket.on('open', () => {
+                // identifying with the gateway
                 this.send(GatewayOpcodes.Identify, {
                     token: token,
                     intents: this.options.intents.reduce((a, b) => a | b, 0),
@@ -63,119 +61,17 @@ class Gateway {
 
                 const embed = new EmbedBuilder()
                     .setColor(0x1ed760)
-                    .setTitle('Gateway Connection')
+                    .setTitle('Gateway')
                     .setDescription('WebSocket connection was opened successfully!')
                     .setTimestamp(new Date().toISOString());
 
                 this.logger.info("WebSocket it's on CONNECTED state.", 'Gateway');
                 this.webhookLog({ embeds: [embed] });
+                
+                resolve(this.socket);
             });
 
-            this.socket.on('message', async (data: string) => {
-                const { op, t, d, s }: GatewayReceivePayload = JSON.parse(data);
-
-                this.sequence = s;
-
-                if (op === GatewayOpcodes.Hello) {
-                    const jitter = Math.random();
-                    const firstWait = Math.floor(d.heartbeat_interval * jitter);
-
-                    const embed = new EmbedBuilder()
-                        .setColor(0xffce47)
-                        .setTitle('Gateway Connection')
-                        .setDescription(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`)
-                        .setTimestamp(new Date().toISOString());
-
-                    this.logger.info(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`, 'Gateway');
-                    this.webhookLog({ embeds: [embed] });
-
-                    const pingInterval = setInterval(() => {
-                        this.socket.readyState === WebSocket.OPEN ? (this.socket.ping(), this.send(GatewayOpcodes.Heartbeat, null)) : (clearInterval(pingInterval), this.establishConnection(token));
-                    }, d.heartbeat_interval);
-                };
-
-                if (op === GatewayOpcodes.Heartbeat) {
-                    this.logger.info('Received heartbeat opcode, sending heartbeat..', 'Gateway');
-                    this.send(GatewayOpcodes.Heartbeat, null);
-                }
-
-                if (op === GatewayOpcodes.HeartbeatAck) {
-                    this.logger.info('Received heartbeat ack opcode.', 'Gateway');
-                }
-
-                if (op === GatewayOpcodes.Reconnect) {
-                    const embed = new EmbedBuilder()
-                        .setColor(0xffce47)
-                        .setTitle('Gateway Connection')
-                        .setDescription('Received reconnect opcode, reconnecting..')
-                        .setTimestamp(new Date().toISOString());
-
-                    this.webhookLog({ embeds: [embed] });
-                    this.logger.warn('Received reconnect opcode, reconnecting..', 'Gateway');
-                    this.socket.close();
-                    this.establishConnection(token);
-                }
-
-                if (op === GatewayOpcodes.InvalidSession) {
-                    const embed = new EmbedBuilder()
-                        .setColor(0xffce47)
-                        .setTitle('Gateway Connection')
-                        .setDescription('Received invalid session opcode, reconnecting..')
-                        .setTimestamp(new Date().toISOString());
-
-                    this.webhookLog({ embeds: [embed] });
-                    this.logger.warn('Received invalid session opcode, reconnecting..', 'Gateway');
-                }
-
-                // handling events:
-                if (op === GatewayOpcodes.Dispatch && t) {
-                    if ([GatewayDispatchEvents.Ready].includes(t)) {
-                        const { resume_gateway_url, session_id } = d as GatewayReadyDispatchData;
-
-                        const embed = new EmbedBuilder()
-                            .setColor(0x1ed760)
-                            .setTitle('Gateway Connection')
-                            .setDescription('Received ready event, connection established!')
-                            .setTimestamp(new Date().toISOString());
-
-                        this.webhookLog({ embeds: [embed] });
-
-                        this.resume_url = resume_gateway_url;
-                        this.session = session_id;
-                    }
-
-                    // guild member chunk event
-                    if ([GatewayDispatchEvents.GuildMembersChunk].includes(t)) {
-                        const { members, presences, guild_id } = d as GatewayGuildMembersChunkDispatchData;
-
-                        if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
-                            const data: DiscordUser = await axios.get(`https://discord.com/api/v10/users/${members[0].user?.id}/profile`, {
-                                method: 'GET',
-                                headers: {
-                                    Authorization: `${process.env.USER_TOKEN}`
-                                }
-                            })
-                                .then((res) => res.data)
-                                .catch((err) => this.logger.error('Error while fetching user profile: ' + err, 'Gateway'));
-
-                            this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
-
-                            this.event.emit(GatewayDispatchEvents.GuildMembersChunk, this.member);
-                        };
-                    }
-
-                    // presence update event
-                    if ([GatewayDispatchEvents.PresenceUpdate].includes(t)) {
-                        const { user, activities, status, guild_id, client_status } = d as GatewayPresenceUpdateDispatchData;
-
-                        if (Object.keys(d).length && user.id === process.env.USER_ID) {
-                            this.member = { ...this.member, user, activities, status, guild_id, client_status };
-
-                            this.event.emit(GatewayDispatchEvents.PresenceUpdate, this.member);
-                        }
-                    }
-                }
-            });
+            this.socket.on('message', this.handleMessage.bind(this, token));
 
             this.socket.on('pong', () => {
                 this.logger.info('Pong received from Gateway!', 'Gateway');
@@ -184,13 +80,12 @@ class Gateway {
             this.socket.on('close', (code: number) => {
                 const embed = new EmbedBuilder()
                     .setColor(0xff0000)
-                    .setTitle('Gateway Connection')
+                    .setTitle('Gateway')
                     .setDescription(`Gateway connection was closed with code: ${code}`)
                     .setTimestamp(new Date().toISOString());
 
                 this.webhookLog({ embeds: [embed] });
                 this.logger.warn(`Error code: ${code}`, 'Gateway');
-                reject(code);
 
                 if (code === 1000 || code === 1001) {
                     this.logger.info('Connection closed successfully.', 'Gateway');
@@ -198,12 +93,14 @@ class Gateway {
                     this.logger.warn('Connection closed with errors. Attempt to reconnect', 'Gateway');
                     this.establishConnection(token);
                 }
+
+                reject(null);
             });
 
             this.socket.on('error', (error) => {
                 const embed = new EmbedBuilder()
                     .setColor(0xff0000)
-                    .setTitle('Gateway Connection')
+                    .setTitle('Gateway')
                     .setDescription(`Error on Gateway connection: ${error}`)
                     .setTimestamp(new Date().toISOString());
 
@@ -211,20 +108,22 @@ class Gateway {
                 this.logger.error('Error on Websocket connection: ' + error, 'Gateway');
                 this.establishConnection(token);
 
-                reject(error);
+                reject(null);
             });
 
             this.ws.on('connection', this.handleConnection.bind(this));
         });
     };
 
-    private resumeConnection(token: Snowflake): Promise<void> {
+    // resume connection from gateway
+    private resumeConnection(token: Snowflake): Promise<WebSocket> {
         this.socket = new WebSocket(`${this.resume_url}?v=10&encoding=json`);
 
-        this.logger.info('Connecting to Discord Gateway...', 'Gateway Resume');
+        this.logger.info('Reconnecting to Discord Gateway...', 'Gateway Resume');
 
         return new Promise((resolve, reject) => {
             this.socket.on('open', () => {
+                // resuming connection with the gateway
                 this.send(GatewayOpcodes.Resume, {
                     token: token,
                     session_id: this.session,
@@ -233,113 +132,17 @@ class Gateway {
 
                 const embed = new EmbedBuilder()
                     .setColor(0x1ed760)
-                    .setTitle('Gateway Resume Connection')
+                    .setTitle('Gateway Resume')
                     .setDescription('WebSocket connection was resumed successfully!')
                     .setTimestamp(new Date().toISOString());
 
                 this.logger.info("WebSocket it's on CONNECTED state.", 'Gateway Resume');
                 this.webhookLog({ embeds: [embed] });
+
+                resolve(this.socket);
             });
 
-            this.socket.on('message', async (data: string) => {
-                const { op, t, d, s }: GatewayReceivePayload = JSON.parse(data);
-
-                this.sequence = s;
-
-                if (op === GatewayOpcodes.Hello) {
-                    const jitter = Math.random();
-                    const firstWait = Math.floor(d.heartbeat_interval * jitter);
-
-                    const embed = new EmbedBuilder()
-                        .setColor(0xffce47)
-                        .setTitle('Gateway Resume Connection')
-                        .setDescription(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`)
-                        .setTimestamp(new Date().toISOString());
-
-                    this.logger.info(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`, 'Gateway Resume');
-                    this.webhookLog({ embeds: [embed] });
-
-                    const pingInterval = setInterval(() => {
-                        this.socket.readyState === WebSocket.OPEN ? (this.socket.ping(), this.send(GatewayOpcodes.Heartbeat, null)) : (clearInterval(pingInterval), this.establishConnection(token));
-                    }, d.heartbeat_interval);
-                };
-
-                if (op === GatewayOpcodes.Reconnect) {
-                    const embed = new EmbedBuilder()
-                        .setColor(0xffce47)
-                        .setTitle('Gateway Resume Connection')
-                        .setDescription('Received reconnect opcode, reconnecting..')
-                        .setTimestamp(new Date().toISOString());
-
-                    this.webhookLog({ embeds: [embed] });
-                    this.logger.warn('Received reconnect opcode, reconnecting..', 'Gateway Resume');
-                    this.socket.close();
-                    this.establishConnection(token);
-                }
-
-                if (op === GatewayOpcodes.InvalidSession) {
-                    const embed = new EmbedBuilder()
-                        .setColor(0xffce47)
-                        .setTitle('Gateway Resume Connection')
-                        .setDescription('Received invalid session opcode, reconnecting..')
-                        .setTimestamp(new Date().toISOString());
-
-                    this.webhookLog({ embeds: [embed] });
-                    this.logger.warn('Received invalid session opcode, reconnecting..', 'Gateway Resume');
-
-                    this.socket.close();
-                    this.establishConnection(token);
-                }
-
-                // handling events:
-                if (op === GatewayOpcodes.Dispatch && t) {
-                    if ([GatewayDispatchEvents.Ready].includes(t)) {
-                        const { resume_gateway_url, session_id } = d as GatewayReadyDispatchData;
-
-                        const embed = new EmbedBuilder()
-                            .setColor(0x1ed760)
-                            .setTitle('Gateway Resume Connection')
-                            .setDescription('Received ready event, connection established!')
-                            .setTimestamp(new Date().toISOString());
-
-                        this.webhookLog({ embeds: [embed] });
-
-                        this.resume_url = resume_gateway_url;
-                        this.session = session_id;
-                    }
-
-                    // guild member chunk event
-                    if ([GatewayDispatchEvents.GuildMembersChunk].includes(t)) {
-                        const { members, presences, guild_id } = d as GatewayGuildMembersChunkDispatchData;
-
-                        if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
-                            const data: DiscordUser = await axios.get(`https://discord.com/api/v10/users/${members[0].user?.id}/profile`, {
-                                method: 'GET',
-                                headers: {
-                                    Authorization: `${process.env.USER_TOKEN}`
-                                }
-                            })
-                                .then((res) => res.data)
-                                .catch((err) => this.logger.error('Error while fetching user profile: ' + err, 'Gateway Resume'));
-
-                            this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
-
-                            this.event.emit(GatewayDispatchEvents.GuildMembersChunk, this.member);
-                        };
-                    }
-
-                    // presence update event
-                    if ([GatewayDispatchEvents.PresenceUpdate].includes(t)) {
-                        const { user, activities, status, guild_id } = d as GatewayPresenceUpdateDispatchData;
-
-                        if (Object.keys(d).length && user.id === process.env.USER_ID) {
-                            this.member = { ...this.member, activities, status, guild_id };
-
-                            this.event.emit(GatewayDispatchEvents.PresenceUpdate, this.member);
-                        }
-                    }
-                }
-            });
+            this.socket.on('message', this.handleMessage.bind(this, token));
 
             this.socket.on('pong', () => {
                 this.logger.info('Pong received from Gateway!', 'Gateway Resume');
@@ -348,40 +151,142 @@ class Gateway {
             this.socket.on('close', (code: number) => {
                 const embed = new EmbedBuilder()
                     .setColor(0xff0000)
-                    .setTitle('Gateway Resume Connection')
+                    .setTitle('Gateway Resume')
                     .setDescription(`Gateway connection was closed with code: ${code}`)
                     .setTimestamp(new Date().toISOString());
 
                 this.webhookLog({ embeds: [embed] });
                 this.logger.warn(`Error code: ${code}`, 'Gateway Resume');
-                reject(code);
-
+                
                 if (code === 1000 || code === 1001) {
                     this.logger.info('Connection closed successfully.', 'Gateway Resume');
                 } else {
                     this.logger.warn('Connection closed with errors. Attempt to reconnect', 'Gateway Resume');
                     this.establishConnection(token);
                 }
+
+                reject(null);
             });
 
             this.socket.on('error', (error) => {
                 const embed = new EmbedBuilder()
                     .setColor(0xff0000)
-                    .setTitle('Gateway Resume Connection')
+                    .setTitle('Gateway Resume')
                     .setDescription(`Error on Gateway connection: ${error}`)
                     .setTimestamp(new Date().toISOString());
 
                 this.webhookLog({ embeds: [embed] });
                 this.logger.error('Error on Websocket connection: ' + error, 'Gateway Resume');
-                reject(error);
                 this.establishConnection(token);
+
+                reject(null);
             });
 
             this.ws.on('connection', this.handleConnection.bind(this));
         });
     }
 
-    private handleConnection(ws: WebSocket, req: IncomingMessage) {
+    private async handleMessage(token: Snowflake, data: string): Promise<void> {
+        const { op, t, d, s }: GatewayReceivePayload = JSON.parse(data);
+
+        this.sequence = s;
+
+        if (op === GatewayOpcodes.Hello) {
+            const jitter = Math.random();
+            const firstWait = Math.floor(d.heartbeat_interval * jitter);
+
+            const embed = new EmbedBuilder()
+                .setColor(0xffce47)
+                .setTitle('Gateway Message')
+                .setDescription(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`)
+                .setTimestamp(new Date().toISOString());
+
+            this.logger.info(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`, 'Gateway Message');
+            this.webhookLog({ embeds: [embed] });
+
+            const pingInterval = setInterval(() => {
+                this.socket.readyState === WebSocket.OPEN ? (this.socket.ping(), this.send(GatewayOpcodes.Heartbeat, null)) : (clearInterval(pingInterval), this.establishConnection(token));
+            }, d.heartbeat_interval);
+        };
+
+        if (op === GatewayOpcodes.Reconnect) {
+            const embed = new EmbedBuilder()
+                .setColor(0xffce47)
+                .setTitle('Gateway Message')
+                .setDescription('Received reconnect opcode, reconnecting..')
+                .setTimestamp(new Date().toISOString());
+
+            this.webhookLog({ embeds: [embed] });
+            this.logger.warn('Received reconnect opcode, reconnecting..', 'Gateway Message');
+            this.socket.close();
+            this.establishConnection(token);
+        }
+
+        if (op === GatewayOpcodes.InvalidSession) {
+            const embed = new EmbedBuilder()
+                .setColor(0xffce47)
+                .setTitle('Gateway Message')
+                .setDescription('Received invalid session opcode, reconnecting..')
+                .setTimestamp(new Date().toISOString());
+
+            this.webhookLog({ embeds: [embed] });
+            this.logger.warn('Received invalid session opcode, reconnecting..', 'Gateway Message');
+
+            this.socket.close();
+            this.establishConnection(token);
+        }
+
+        // handling events:
+        if (op === GatewayOpcodes.Dispatch && t) {
+            if ([GatewayDispatchEvents.Ready].includes(t)) {
+                const { resume_gateway_url, session_id } = d as GatewayReadyDispatchData;
+
+                const embed = new EmbedBuilder()
+                    .setColor(0x1ed760)
+                    .setTitle('Gateway Message')
+                    .setDescription('Received ready event, connection established!')
+                    .setTimestamp(new Date().toISOString());
+
+                this.webhookLog({ embeds: [embed] });
+
+                this.resume_url = resume_gateway_url;
+                this.session = session_id;
+            }
+
+            // guild member chunk event
+            if ([GatewayDispatchEvents.GuildMembersChunk].includes(t)) {
+                const { members, presences, guild_id } = d as GatewayGuildMembersChunkDispatchData;
+
+                if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
+                    const data: DiscordUser = await axios.get(`https://discord.com/api/v10/users/${members[0].user?.id}/profile`, {
+                        method: 'GET',
+                        headers: {
+                            Authorization: `${process.env.USER_TOKEN}`
+                        }
+                    })
+                        .then((res) => res.data)
+                        .catch((err) => this.logger.error('Error while fetching user profile: ' + err, 'Gateway Message'));
+
+                    this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
+
+                    this.event.emit(GatewayDispatchEvents.GuildMembersChunk, this.member);
+                };
+            }
+
+            // presence update event
+            if ([GatewayDispatchEvents.PresenceUpdate].includes(t)) {
+                const { user, activities, status, guild_id } = d as GatewayPresenceUpdateDispatchData;
+
+                if (Object.keys(d).length && user.id === process.env.USER_ID) {
+                    this.member = { ...this.member, activities, status, guild_id };
+
+                    this.event.emit(GatewayDispatchEvents.PresenceUpdate, this.member);
+                }
+            }
+        }
+    }
+
+    private handleConnection(ws: WebSocket, req: IncomingMessage): void {
         const id = Math.random().toString(36).substring(7);
 
         this.connections.set(id, ws);
@@ -495,6 +400,10 @@ class Gateway {
             this.logger.info(`${this.connections.size} connections opened.`, 'Connection');
         }
     }
+
+    private send(op: GatewayOpcodes, d?: any | null): void {
+        return this.socket && this.socket.readyState === WebSocket.OPEN ? this.socket.send(JSON.stringify({ op, d })) : undefined;
+    };
 
     public on(event: GatewayDispatchEvents, listener: (...args: string[]) => Promise<void> | void): EventEmitter {
         return this.event.on(event, listener);
