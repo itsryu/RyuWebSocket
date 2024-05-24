@@ -7,7 +7,7 @@ class SpotifyGateway extends Client {
     private secret!: string;
     private token!: string | null;
 
-    constructor(spotifyId: string, spotifySecret: string) {
+    public constructor(spotifyId: string, spotifySecret: string) {
         super();
 
         this.id = spotifyId;
@@ -15,7 +15,7 @@ class SpotifyGateway extends Client {
     }
 
     private async fetchToken(): Promise<string | null> {
-        const getToken = async (resolve: any, reject: any) => {
+        const getToken = async (resolve: any) => {
             try {
                 const form = new URLSearchParams();
                 form.append('grant_type', 'client_credentials');
@@ -34,7 +34,7 @@ class SpotifyGateway extends Client {
                     resolve(null);
                 }
             } catch (err) {
-                reject(err);
+                resolve(null);
             }
         };
 
@@ -44,7 +44,7 @@ class SpotifyGateway extends Client {
     public async getTrack(trackId: string): Promise<SpotifyTrackResponse | null> {
         if(!this.token) this.token = await this.fetchToken();
 
-        const getTrack = async (resolve: any, reject: any) => {
+        const getTrack = async (resolve: any) => {
             try {
                 const response = await axios.get<SpotifyTrackResponse | null>(process.env.SPOTIFY_GET_TRACK_URI + '/' + trackId, {
                     headers: {
@@ -59,7 +59,7 @@ class SpotifyGateway extends Client {
                     resolve(null);
                 }
             } catch (err) {
-                reject(err);
+                resolve(null);
             }
         };
             

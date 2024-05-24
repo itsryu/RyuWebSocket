@@ -3,7 +3,7 @@ import { ClientOptions, DiscordUser, MemberPresence } from './types/DiscordInter
 import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewaySendPayload, GatewayRequestGuildMembersDataWithUserIds, RESTPostAPIWebhookWithTokenJSONBody, GatewayPresenceUpdateDispatchData, GatewayGuildMembersChunkDispatchData, GatewayReadyDispatchData, GatewayDispatchPayload } from 'discord-api-types/v10';
 import EventEmitter from 'node:events';
 import { IncomingMessage } from 'node:http';
-import { EmbedBuilder } from './structures/EmbedConstructor';
+import { EmbedBuilder } from './structures/EmbedStructure';
 import axios from 'axios';
 import { Client } from './client';
 import { SpotifyGateway } from './spotify';
@@ -11,7 +11,7 @@ import { SpotifyEvents, SpotifyTrackResponse } from './types/SpotifyInterfaces';
 
 class Gateway extends Client {
     private socket!: WebSocket | null;
-    private ws: Server = new Server({ port: process.env.PORT });
+    private ws: Server = new Server({ port: process.env.WS_PORT });
     private event: EventEmitter = new EventEmitter();
     private readonly options: ClientOptions;
     private member!: MemberPresence;
@@ -20,15 +20,11 @@ class Gateway extends Client {
     private session?: string;
     private sequence?: number | null;
     private spotify: SpotifyGateway = new SpotifyGateway(process.env.SPOTIFY_ID, process.env.SPOTIFY_SECRET);
-    private track!: SpotifyTrackResponse | null; 
 
-    constructor(options: ClientOptions) {
+    protected constructor(options: ClientOptions) {
         super();
 
         this.options = options;
-
-        process.on('uncaughtException', (err: Error) => this.logger.error(err.stack as string, 'uncaughtException'));
-        process.on('unhandledRejection', (err: Error) => this.logger.error(err.stack as string, 'unhandledRejection'));
     }
 
     public async login(token: Snowflake): Promise<Snowflake> {
@@ -263,11 +259,8 @@ class Gateway extends Client {
                 const { members, presences, guild_id } = d as GatewayGuildMembersChunkDispatchData;
 
                 if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
-                    const data: DiscordUser = await axios.get(`https://discord.com/api/v10/users/${members[0].user?.id}/profile`, {
-                        method: 'GET',
-                        headers: {
-                            Authorization: `${process.env.USER_TOKEN}`
-                        }
+                    const data: DiscordUser = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.SERVER_PORT) : (process.env.DOMAIN_URL)) + '/discord/user/' + members[0].user?.id, {
+                        method: 'GET'
                     })
                         .then((res) => res.data)
                         .catch((err) => this.logger.error('Error while fetching user profile: ' + err, 'Gateway Message'));
@@ -279,9 +272,11 @@ class Gateway extends Client {
                         const activity = this.member.activities.filter((activity) => activity.id === 'spotify:1')[0];
                         
                         if(activity.sync_id) {
-                            this.track = await this.spotify.getTrack(activity.sync_id);
+                            const data = await this.spotify.getTrack(activity.sync_id);
 
-                            this.event.emit(SpotifyEvents.GetTrack, this.track);
+                            if(data && Object.keys(data).length) {
+                                this.event.emit(SpotifyEvents.GetTrack, data);
+                            }
                         }
                     }
 
@@ -301,9 +296,11 @@ class Gateway extends Client {
                         const activity = this.member.activities.filter((activity) => activity.id === 'spotify:1')[0];
                         
                         if(activity.sync_id) {
-                            this.track = await this.spotify.getTrack(activity.sync_id);
+                            const data = await this.spotify.getTrack(activity.sync_id);
 
-                            this.event.emit(SpotifyEvents.GetTrack, this.track);
+                            if(data && Object.keys(data).length) {
+                                this.event.emit(SpotifyEvents.GetTrack, data);
+                            }
                         }
                     }
 

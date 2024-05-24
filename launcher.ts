@@ -1,11 +1,17 @@
 import { config } from 'dotenv';
-import { Socket } from './client';
+import { Socket } from './socket';
 import { GatewayIntentBits } from 'discord-api-types/v10';
+import { Server } from './src/api/server';
 
 config({ path: './.env' });
 
-new Socket({
+const socket = new Socket({
     intents: [
         GatewayIntentBits.GuildPresences
     ]
-}).initialize();
+});
+
+const server = new Server(process.env.SERVER_PORT);
+
+socket.initialize();
+server.listen();

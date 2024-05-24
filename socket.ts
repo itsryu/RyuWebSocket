@@ -1,8 +1,8 @@
 import { ClientOptions } from './src/types/DiscordInterfaces';
-import { Gateway } from './src/socket';
+import { Gateway } from './src/gateway';
 
 export class Socket extends Gateway {
-    constructor(options: ClientOptions) {
+    public constructor(options: ClientOptions) {
         super(options);
     }
 

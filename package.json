@@ -14,18 +14,23 @@
     "build": "yarn install && npx tsc --project tsconfig.json --pretty --noEmitOnError && echo Arquivos compilados com sucesso!",
     "clean": "rmdir /s /q dist",
     "start": "node dist/launcher.js",
-    "dev": "node --watch . --ext js,ts,ejs,css --exec ts-node src/server.ts",
+    "dev": "node --watch dist/launcher.js --ext js,ts,ejs,css --exec ts-node src/server.ts",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix"
   },
   "dependencies": {
     "axios": "^1.6.8",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
     "discord-api-types": "^0.37.79",
     "dotenv": "^16.4.5",
+    "express": "^4.19.2",
     "winston": "^3.13.0",
     "ws": "^8.17.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
     "@types/node": "^20.12.4",
     "@types/ws": "^8.5.10",
     "@typescript-eslint/eslint-plugin": "^7.5.0",
