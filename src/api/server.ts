@@ -1,4 +1,4 @@
-import express, { Express, Router } from 'express';
+import express, { Router } from 'express';
 import { Client } from '../client';
 import cors from 'cors';
 import { RouteStructure } from '../structures/RouteStructure';
@@ -11,13 +11,8 @@ interface Route {
 };
 
 class Server extends Client {
-    public app: Express = express();
-    private port: number;
-
-    public constructor(port: number) {
-        super();
-
-        this.port = port;
+    public constructor() {
+        super(process.env.PORT);
 
         this.config();
     }
@@ -61,12 +56,6 @@ class Server extends Client {
         ];
 
         return routes;
-    }
-
-    public listen() {
-        this.app.listen(this.port, () => {
-            this.logger.info(`Server is running at ${process.env.STATE == 'development' ? `${process.env.LOCAL_URL}:${this.port}/` : `${process.env.DOMAIN_URL}`}`, 'Server');
-        });
     }
 }
 

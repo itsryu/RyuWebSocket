@@ -8,7 +8,7 @@ class SpotifyGateway extends Client {
     private token!: string | null;
 
     public constructor(spotifyId: string, spotifySecret: string) {
-        super();
+        super(process.env.PORT);
 
         this.id = spotifyId;
         this.secret = spotifySecret;

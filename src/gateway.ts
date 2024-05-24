@@ -1,4 +1,4 @@
-import WebSocket, { Server } from 'ws';
+import WebSocket from 'ws';
 import { ClientOptions, DiscordUser, MemberPresence } from './types/DiscordInterfaces';
 import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewaySendPayload, GatewayRequestGuildMembersDataWithUserIds, RESTPostAPIWebhookWithTokenJSONBody, GatewayPresenceUpdateDispatchData, GatewayGuildMembersChunkDispatchData, GatewayReadyDispatchData, GatewayDispatchPayload } from 'discord-api-types/v10';
 import EventEmitter from 'node:events';
@@ -11,7 +11,6 @@ import { SpotifyEvents, SpotifyTrackResponse } from './types/SpotifyInterfaces';
 
 class Gateway extends Client {
     private socket!: WebSocket | null;
-    private ws: Server = new Server({ port: process.env.WS_PORT });
     private event: EventEmitter = new EventEmitter();
     private readonly options: ClientOptions;
     private member!: MemberPresence;
@@ -22,7 +21,7 @@ class Gateway extends Client {
     private spotify: SpotifyGateway = new SpotifyGateway(process.env.SPOTIFY_ID, process.env.SPOTIFY_SECRET);
 
     protected constructor(options: ClientOptions) {
-        super();
+        super(process.env.PORT);
 
         this.options = options;
     }
@@ -259,7 +258,7 @@ class Gateway extends Client {
                 const { members, presences, guild_id } = d as GatewayGuildMembersChunkDispatchData;
 
                 if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
-                    const data: DiscordUser = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.SERVER_PORT) : (process.env.DOMAIN_URL)) + '/discord/user/' + members[0].user?.id, {
+                    const data: DiscordUser = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/' + members[0].user?.id, {
                         method: 'GET'
                     })
                         .then((res) => res.data)

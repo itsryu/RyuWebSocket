@@ -16,8 +16,7 @@ declare global {
       GUILD_ID: string;
       USER_ID: string;
       STATE: string
-      WS_PORT: number;
-      SERVER_PORT: number;
+      PORT: number;
     }
   }
 }

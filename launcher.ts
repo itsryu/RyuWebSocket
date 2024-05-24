@@ -11,7 +11,7 @@ const socket = new Socket({
     ]
 });
 
-const server = new Server(process.env.SERVER_PORT);
+const server = new Server();
 
-socket.initialize();
 server.listen();
+socket.initialize();
