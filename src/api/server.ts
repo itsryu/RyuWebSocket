@@ -4,6 +4,7 @@ import cors from 'cors';
 import { RouteStructure } from '../structures/RouteStructure';
 import { InfoMiddleware } from './middlewares/index';
 import { NotFoundController, HomeController, SpotifyGetTrackController, DiscordGetUserController } from './routes/index';
+
 interface Route {
     method: string;
     path: string;
@@ -12,7 +13,7 @@ interface Route {
 
 class Server extends Client {
     public constructor() {
-        super(process.env.PORT);
+        super();
 
         this.config();
     }
@@ -48,8 +49,8 @@ class Server extends Client {
         return router;
     }
 
-    private loadRoutes(): Array<Route> {
-        const routes: Array<Route> = [
+    private loadRoutes(): Route[] {
+        const routes: Route[] = [
             { method: 'GET', path: '/', handler: new HomeController(this) },
             { method: 'GET', path: '/discord/user/:id', handler: new DiscordGetUserController(this)},
             { method: 'GET', path: '/spotify/track/:id', handler: new SpotifyGetTrackController(this) }

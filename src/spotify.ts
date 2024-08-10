@@ -1,14 +1,14 @@
 import axios from 'axios';
 import { SpotifyTokenResponse, SpotifyTrackResponse } from './types/SpotifyInterfaces';
-import { Client } from './client';
+import { Base } from './base';
 
-class SpotifyGateway extends Client {
+class SpotifyGateway extends Base {
     private id!: string;
     private secret!: string;
     private token!: string | null;
 
     public constructor(spotifyId: string, spotifySecret: string) {
-        super(process.env.PORT);
+        super();
 
         this.id = spotifyId;
         this.secret = spotifySecret;
@@ -55,6 +55,8 @@ class SpotifyGateway extends Client {
 
                 if (response.data && response.data.id) {
                     resolve(response.data);
+
+                    this.logger.info(`Track '${response.data.name}' fetched successfully`, 'SpotifyGateway');
                 } else {
                     resolve(null);
                 }

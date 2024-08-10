@@ -1,16 +1,33 @@
 {
   "compilerOptions": {
-    "target": "ES6",
+    "target": "ES2022",
     "outDir": "dist",
+    "rootDir": "./",
     "module": "commonjs",
     "strict": true,
     "sourceMap": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
-    "skipLibCheck": true,
     "types": [
-      "node"
-    ]
+      "node",
+      "jest"
+    ],
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "skipLibCheck": true,
+    "moduleResolution": "node",
+    "noImplicitAny": false,
+    "noImplicitReturns": false,
+    "noImplicitThis": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "strictFunctionTypes": true,
+    "strictNullChecks": true,
+    "strictPropertyInitialization": true,
+    "typeRoots": [
+      "./node_modules/@types",
+    ],
+    "forceConsistentCasingInFileNames": true
   },
   "exclude": [
     "node_modules",
@@ -18,8 +35,8 @@
   ],
   "include": [
     "*.ts",
+    "*.d.ts",
     "src/**/*.ts",
-    "enviroments.d.ts",
-    "launcher.ts"
+    "./__tests__/*.test.ts",
   ]
 }

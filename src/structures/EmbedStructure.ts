@@ -158,7 +158,7 @@ class EmbedBuilder {
         if (!embed.title && !embed.description && !embed.url && !embed.timestamp && !embed.color && !embed.footer && !embed.image && !embed.thumbnail && !embed.video && !embed.provider && !embed.author && !embed.fields) {
             throw new Error('Embed must have at least one property');
         }
-        if (embed.fields) embed.fields.forEach(field => EmbedBuilder.validateField(field));
+        if (embed.fields) embed.fields.forEach(field => { EmbedBuilder.validateField(field); });
         if (embed.footer) EmbedBuilder.validateFooter(embed.footer);
         if (embed.image) EmbedBuilder.validateImage(embed.image);
         if (embed.thumbnail) EmbedBuilder.validateThumbnail(embed.thumbnail);

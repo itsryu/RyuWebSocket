@@ -5,25 +5,27 @@ import EventEmitter from 'node:events';
 import { IncomingMessage } from 'node:http';
 import { EmbedBuilder } from './structures/EmbedStructure';
 import axios from 'axios';
-import { Client } from './client';
 import { SpotifyGateway } from './spotify';
 import { SpotifyEvents, SpotifyTrackResponse } from './types/SpotifyInterfaces';
+import { Base } from './base';
 
-class Gateway extends Client {
+class Gateway extends Base {
+    private wss!: WebSocket.Server;
     private socket!: WebSocket | null;
     private event: EventEmitter = new EventEmitter();
     private readonly options: ClientOptions;
     private member!: MemberPresence;
-    public connections: Map<string, WebSocket> = new Map();
+    public connections = new Map<string, WebSocket>();
     private resume_url?: string;
     private session?: string;
     private sequence?: number | null;
     private spotify: SpotifyGateway = new SpotifyGateway(process.env.SPOTIFY_ID, process.env.SPOTIFY_SECRET);
 
-    protected constructor(options: ClientOptions) {
-        super(process.env.PORT);
+    public constructor(options: ClientOptions, websocketServer: WebSocket.Server) {
+        super();
 
         this.options = options;
+        this.wss = websocketServer;
     }
 
     public async login(token: Snowflake): Promise<Snowflake> {
@@ -111,7 +113,7 @@ class Gateway extends Client {
                 resolve(null);
             });
 
-            this.ws.on('connection', this.handleConnection.bind(this));
+            this.wss.on('connection', this.handleConnection.bind(this));
         });
     };
 
@@ -182,7 +184,7 @@ class Gateway extends Client {
                 resolve(null);
             });
 
-            this.ws.on('connection', this.handleConnection.bind(this));
+            this.wss.on('connection', this.handleConnection.bind(this));
         });
     }
 
@@ -262,7 +264,7 @@ class Gateway extends Client {
                         method: 'GET'
                     })
                         .then((res) => res.data)
-                        .catch((err) => this.logger.error('Error while fetching user profile: ' + err, 'Gateway Message'));
+                        .catch((err) => { this.logger.error('Error while fetching user profile: ' + err, 'Gateway Message'); });
 
                     this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
 
@@ -321,11 +323,11 @@ class Gateway extends Client {
             const ip = typeof (ipObject) === 'object' ? ipObject[0] : ipObject?.split(',')[0];
             const interval = 41250;
 
-            setInterval(() => connection.send(this.payloadData({ op: GatewayOpcodes.Heartbeat, d: { heartbeat_interval: interval } })), interval);
+            setInterval(() => { connection.send(this.payloadData({ op: GatewayOpcodes.Heartbeat, d: { heartbeat_interval: interval } })); }, interval);
 
-            const presenceUpdateHandler = (data: GatewayDispatchPayload) => connection.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: data }));
-            const guildMembersChunkHandler = (data: GatewayDispatchPayload ) => connection.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data }));
-            const spotifyTrackHandler = (data: SpotifyTrackResponse) => connection.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data }));
+            const presenceUpdateHandler = (data: GatewayDispatchPayload) => { connection.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: data })); };
+            const guildMembersChunkHandler = (data: GatewayDispatchPayload ) => { connection.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data })); };
+            const spotifyTrackHandler = (data: SpotifyTrackResponse) => { connection.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data })); };
 
             this.event.on(GatewayDispatchEvents.PresenceUpdate, presenceUpdateHandler);
             this.event.on(GatewayDispatchEvents.GuildMembersChunk, guildMembersChunkHandler);
@@ -411,7 +413,7 @@ class Gateway extends Client {
                 this.webhookLog({ embeds: [embed] });
                 this.logger.error(`[${id}] - [${ip}]: was disconnected by error: ${error.message}.`, 'Connection');
                 this.logger.info(`${this.connections.size} connections opened.`, 'Connection');
-                this.logger.warn(error.stack as string, 'Connection');
+                this.logger.warn(error.stack, 'Connection');
 
                 connection?.close();
                 this.connections.delete(id);
@@ -438,7 +440,7 @@ class Gateway extends Client {
     }
 
     private send(op: GatewayOpcodes, d?: any | null): void {
-        return this.socket && this.socket.readyState === WebSocket.OPEN ? this.socket.send(JSON.stringify({ op, d })) : undefined;
+        this.socket && this.socket.readyState === WebSocket.OPEN ? this.socket.send(JSON.stringify({ op, d })) : undefined;
     };
 
     public on(event: GatewayDispatchEvents, listener: (...args: string[]) => Promise<void> | void): EventEmitter {
@@ -465,7 +467,7 @@ class Gateway extends Client {
             },
             body: JSON.stringify(data, null, 2)
         })
-            .catch((err) => this.logger.error(`Error while sending webhook: ${err}`, 'Webhook'));
+            .catch((err) => { this.logger.error(`Error while sending webhook: ${err}`, 'Webhook'); });
     }
 }
 

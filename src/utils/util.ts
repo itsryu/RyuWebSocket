@@ -1,19 +1,23 @@
 import * as winston from 'winston';
 
-enum LogLevel {
-    DEBUG = 'debug',
-    INFO = 'info',
-    WARN = 'warn',
-    ERROR = 'error'
-}
-
 class Logger {
     private logger: winston.Logger;
 
-    constructor(private level: LogLevel = LogLevel.INFO, private environment: string = process.env.STATE) {
+    private readonly levels: winston.config.AbstractConfigSetLevels = {
+        error: 0,
+        warn: 1,
+        info: 2,
+        http: 3,
+        verbose: 4,
+        debug: 5,
+        silly: 6
+    };
+
+    constructor(level = 'info', environment = process.env.STATE) {
         this.logger = winston.createLogger({
-            level: this.level,
-            defaultMeta: { environment: this.environment },
+            level,
+            levels: this.levels,
+            defaultMeta: { environment },
             transports: [
                 new winston.transports.Console()
             ],
@@ -38,19 +42,35 @@ class Logger {
         });
     }
 
-    public debug(message: string, meta: any): void {
+    public debug(message: string | string[] | undefined, meta: string | string[] | undefined): void {
+        if (message && Array.isArray(message)) message = message.join(' ');
+        if (meta && Array.isArray(meta)) meta = meta.join(' - ');
+        if (!message) message = '';
+
         this.logger.debug(message, { path: meta });
     }
 
-    public info(message: string, meta: any): void {
+    public info(message: string | string[] | undefined, meta: string | string[] | undefined): void {
+        if (message && Array.isArray(message)) message = message.join(' ');
+        if (meta && Array.isArray(meta)) meta = meta.join(' - ');
+        if (!message) message = '';
+
         this.logger.info(message, { path: meta });
     }
 
-    public warn(message: string, meta: any): void {
+    public warn(message: string | string[] | undefined, meta: string | string[] | undefined): void {
+        if (message && Array.isArray(message)) message = message.join(' ');
+        if (meta && Array.isArray(meta)) meta = meta.join(' - ');
+        if (!message) message = '';
+
         this.logger.warn(message, { path: meta });
     }
 
-    public error(message: string, meta: any): void {
+    public error(message: string | string[] | undefined, meta: string | string[] | undefined): void {
+        if (message && Array.isArray(message)) message = message.join(' ');
+        if (meta && Array.isArray(meta)) meta = meta.join(' - ');
+        if (!message) message = '';
+
         this.logger.error(message, { path: meta });
     }
 }

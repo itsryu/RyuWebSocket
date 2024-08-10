@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { RouteStructure } from '../../structures/RouteStructure';
-import { Server } from '../server';
 import { SpotifyGateway } from '../../spotify';
+import { Server } from '../server';
 
 class SpotifyGetTrackController extends RouteStructure {
     private spotify: SpotifyGateway = new SpotifyGateway(process.env.SPOTIFY_ID, process.env.SPOTIFY_SECRET);

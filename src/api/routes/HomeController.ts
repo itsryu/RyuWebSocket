@@ -1,13 +1,13 @@
 import { Request, Response } from 'express';
-import { Server } from '../server';
 import { RouteStructure } from '../../structures/RouteStructure';
+import { Server } from '../server';
 
 class HomeController extends RouteStructure {
     constructor(client: Server) {
         super(client);
     }
 
-    run = (req: Request, res: Response) => {
+    run = (_: Request, res: Response) => {
         res.status(200).json({ code: 200, message: 'Hello, World!' });
     };
 }
