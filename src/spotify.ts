@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { SpotifyTokenResponse, SpotifyTrackResponse } from './types/SpotifyInterfaces';
+import { SpotifyRefreshTokenResponse, SpotifyTokenResponse, SpotifyTrackResponse } from './types/SpotifyInterfaces';
 import { Base } from './base';
 
 class SpotifyGateway extends Base {
@@ -51,6 +51,39 @@ class SpotifyGateway extends Base {
 
             return await new Promise<string | null>(getToken);
         }
+    }
+
+    private async refreshToken(refresh_token: string) {
+        this.token = await this.fetchToken();
+
+        const refresh = async (resolve: (V: SpotifyRefreshTokenResponse | null) => void) => {
+            try {
+                const form = new URLSearchParams();
+                form.append('grant_type', 'client_credentials');
+                form.append('refresh_token', refresh_token);
+
+                const request = await axios.post<SpotifyRefreshTokenResponse>(process.env.SPOTIFY_CREDENTIAL_URI, form, {
+                    headers: {
+                        'content-type': 'application/x-www-form-urlencoded',
+                        'Authorization': 'Basic ' + (Buffer.from(this.id + ':' + this.secret).toString('base64'))
+                    },
+                    withCredentials: true
+                })
+
+                if(request && request.data) {
+                    resolve(request.data);
+                } else {
+                    resolve(null);
+                }
+            } catch (err) {
+                this.logger.error((err as Error).message, [SpotifyGateway.name, this.refreshToken.name]);
+                this.logger.warn((err as Error).stack, [SpotifyGateway.name, this.refreshToken.name]);
+
+                resolve(null);
+            }
+        }
+
+        return await new Promise<SpotifyRefreshTokenResponse | null>(refresh);
     }
 
     public async getTrack(trackId: string): Promise<SpotifyTrackResponse | null> {
