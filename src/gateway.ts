@@ -261,10 +261,15 @@ class Gateway extends Base {
 
                 if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
                     const data: DiscordUser | undefined = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/' + members[0].user?.id, {
-                        method: 'GET'
+                        method: 'GET',
+                        headers: {
+                            'Authorization': 'Bearer ' + process.env.AUTH_KEY
+                        }
                     })
                         .then((res) => res.data as DiscordUser)
                         .catch(() => undefined);
+
+                    console.log(data);
 
                     this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
 
