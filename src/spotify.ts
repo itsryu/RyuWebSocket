@@ -5,7 +5,8 @@ import { Base } from './base';
 class SpotifyGateway extends Base {
     private id!: string;
     private secret!: string;
-    private token!: string | null;
+    private token: string | null = null;
+    private expiresAt: number | null = null;
 
     public constructor(spotifyId: string, spotifySecret: string) {
         super();
@@ -15,37 +16,45 @@ class SpotifyGateway extends Base {
     }
 
     private async fetchToken(): Promise<string | null> {
-        const getToken = async (resolve: (V: string | null) => void) => {
-            try {
-                const form = new URLSearchParams();
-                form.append('grant_type', 'client_credentials');
+        const now = Date.now();
 
-                const response = await axios.post<SpotifyTokenResponse | null>(process.env.SPOTIFY_CREDENTIAL_URI, form, {
-                    headers: {
-                        Authorization: 'Basic ' + (Buffer.from(this.id + ':' + this.secret).toString('base64')),
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
-                    withCredentials: true
-                });
+        if (this.token && this.expiresAt && now < this.expiresAt) {
+            return this.token;
+        } else {
+            const getToken = async (resolve: (V: string | null) => void) => {
+                try {
+                    const form = new URLSearchParams();
+                    form.append('grant_type', 'client_credentials');
 
-                if (response.data && response.data.access_token) {
-                    resolve(response.data.access_token);
-                } else {
+                    const response = await axios.post<SpotifyTokenResponse | null>(process.env.SPOTIFY_CREDENTIAL_URI, form, {
+                        headers: {
+                            Authorization: 'Basic ' + (Buffer.from(this.id + ':' + this.secret).toString('base64')),
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        },
+                        withCredentials: true
+                    });
+
+                    if (response.data && response.data.access_token) {
+                        this.expiresAt = now + response.data.expires_in * 1000;
+
+                        resolve(response.data.access_token);
+                    } else {
+                        resolve(null);
+                    }
+                } catch (err) {
+                    this.logger.error((err as Error).message, [SpotifyGateway.name, this.fetchToken.name]);
+                    this.logger.warn((err as Error).stack, [SpotifyGateway.name, this.fetchToken.name]);
+
                     resolve(null);
                 }
-            } catch (err) {
-                this.logger.error((err as Error).message, [SpotifyGateway.name, this.fetchToken.name]);
-                this.logger.warn((err as Error).stack, [SpotifyGateway.name, this.fetchToken.name]);
+            };
 
-                resolve(null);
-            }
-        };
-
-        return await new Promise<string | null>(getToken);
+            return await new Promise<string | null>(getToken);
+        }
     }
 
     public async getTrack(trackId: string): Promise<SpotifyTrackResponse | null> {
-        if (!this.token) this.token = await this.fetchToken();
+        this.token = await this.fetchToken();
 
         const getTrack = async (resolve: (V: SpotifyTrackResponse | null) => void) => {
             try {
