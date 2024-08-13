@@ -269,8 +269,6 @@ class Gateway extends Base {
                         .then((res) => res.data as DiscordUser)
                         .catch(() => undefined);
 
-                    console.log(data);
-
                     this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
 
                     // get track event
