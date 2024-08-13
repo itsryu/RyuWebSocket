@@ -5,6 +5,7 @@ declare global {
     interface ProcessEnv {
       CLIENT_TOKEN: string;
       USER_TOKEN: string;
+      AUTH_KEY: string;
       SPOTIFY_CREDENTIAL_URI: string;
       SPOTIFY_GET_TRACK_URI;
       LOCAL_URL: string;

@@ -15,7 +15,7 @@ class SpotifyGateway extends Base {
     }
 
     private async fetchToken(): Promise<string | null> {
-        const getToken = async (resolve: any) => {
+        const getToken = async (resolve: (V: string | null) => void) => {
             try {
                 const form = new URLSearchParams();
                 form.append('grant_type', 'client_credentials');
@@ -34,6 +34,9 @@ class SpotifyGateway extends Base {
                     resolve(null);
                 }
             } catch (err) {
+                this.logger.error((err as Error).message, [SpotifyGateway.name, this.fetchToken.name]);
+                this.logger.warn((err as Error).stack, [SpotifyGateway.name, this.fetchToken.name]);
+
                 resolve(null);
             }
         };
@@ -42,9 +45,9 @@ class SpotifyGateway extends Base {
     }
 
     public async getTrack(trackId: string): Promise<SpotifyTrackResponse | null> {
-        if(!this.token) this.token = await this.fetchToken();
+        if (!this.token) this.token = await this.fetchToken();
 
-        const getTrack = async (resolve: any) => {
+        const getTrack = async (resolve: (V: SpotifyTrackResponse | null) => void) => {
             try {
                 const response = await axios.get<SpotifyTrackResponse | null>(process.env.SPOTIFY_GET_TRACK_URI + '/' + trackId, {
                     headers: {
@@ -55,16 +58,17 @@ class SpotifyGateway extends Base {
 
                 if (response.data && response.data.id) {
                     resolve(response.data);
-
-                    this.logger.info(`Track '${response.data.name}' fetched successfully`, 'SpotifyGateway');
                 } else {
                     resolve(null);
                 }
             } catch (err) {
+                this.logger.error((err as Error).message, [SpotifyGateway.name, this.getTrack.name]);
+                this.logger.warn((err as Error).stack, [SpotifyGateway.name, this.getTrack.name]);
+
                 resolve(null);
             }
         };
-            
+
         return await new Promise<SpotifyTrackResponse | null>(getTrack);
     }
 }

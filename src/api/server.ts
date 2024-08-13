@@ -2,7 +2,7 @@ import express, { Router } from 'express';
 import { Client } from '../client';
 import cors from 'cors';
 import { RouteStructure } from '../structures/RouteStructure';
-import { InfoMiddleware } from './middlewares/index';
+import { AuthMiddleware, InfoMiddleware } from './middlewares/index';
 import { NotFoundController, HomeController, SpotifyGetTrackController, DiscordGetUserController } from './routes/index';
 
 interface Route {
@@ -34,10 +34,10 @@ class Server extends Client {
 
             switch (method) {
                 case 'GET':
-                    router.get(path, new InfoMiddleware(this).run, handler.run);
+                    router.get(path, new InfoMiddleware(this).run, new AuthMiddleware(this).run, handler.run);
                     break;
                 case 'POST':
-                    router.post(path, new InfoMiddleware(this).run, handler.run);
+                    router.post(path, new InfoMiddleware(this).run, new AuthMiddleware(this).run, handler.run);
                     break;
                 default:
                     break;
@@ -52,7 +52,7 @@ class Server extends Client {
     private loadRoutes(): Route[] {
         const routes: Route[] = [
             { method: 'GET', path: '/', handler: new HomeController(this) },
-            { method: 'GET', path: '/discord/user/:id', handler: new DiscordGetUserController(this)},
+            { method: 'GET', path: '/discord/user/:id', handler: new DiscordGetUserController(this) },
             { method: 'GET', path: '/spotify/track/:id', handler: new SpotifyGetTrackController(this) }
         ];
 

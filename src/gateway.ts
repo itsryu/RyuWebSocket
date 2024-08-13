@@ -48,7 +48,7 @@ class Gateway extends Base {
         this.logger.info('Connecting to Discord Gateway...', 'Gateway');
 
         return new Promise((resolve) => {
-            this.socket?.on('open', () => {
+            this.socket?.on('open', async () => {
                 // identifying with the gateway
                 this.send(GatewayOpcodes.Identify, {
                     token: token,
@@ -68,8 +68,8 @@ class Gateway extends Base {
                     .setTimestamp(new Date().toISOString());
 
                 this.logger.info("WebSocket it's on CONNECTED state.", 'Gateway');
-                this.webhookLog({ embeds: [embed] });
-                
+                await this.webhookLog({ embeds: [embed] });
+
                 resolve(this.socket);
             });
 
@@ -79,36 +79,36 @@ class Gateway extends Base {
                 this.logger.info('Pong received from Gateway!', 'Gateway');
             });
 
-            this.socket?.on('close', (code: number) => {
+            this.socket?.on('close', async (code: number) => {
                 const embed = new EmbedBuilder()
                     .setColor(0xff0000)
                     .setTitle('Gateway')
                     .setDescription(`Gateway connection was closed with code: ${code}`)
                     .setTimestamp(new Date().toISOString());
 
-                this.webhookLog({ embeds: [embed] });
+                await this.webhookLog({ embeds: [embed] });
                 this.logger.warn(`Error code: ${code}`, 'Gateway');
 
                 if (code === 1000 || code === 1001) {
                     this.logger.info('Connection closed successfully.', 'Gateway');
                 } else {
                     this.logger.warn('Connection closed with errors. Attempt to reconnect', 'Gateway');
-                    this.establishConnection(token);
+                    await this.establishConnection(token);
                 }
 
                 resolve(null);
             });
 
-            this.socket?.on('error', (error) => {
+            this.socket?.on('error', async (error) => {
                 const embed = new EmbedBuilder()
                     .setColor(0xff0000)
                     .setTitle('Gateway')
                     .setDescription(`Error on Gateway connection: ${error}`)
                     .setTimestamp(new Date().toISOString());
 
-                this.webhookLog({ embeds: [embed] });
-                this.logger.error('Error on Websocket connection: ' + error, 'Gateway');
-                this.establishConnection(token);
+                await this.webhookLog({ embeds: [embed] });
+                this.logger.error('Error on Websocket connection: ' + error.message, 'Gateway');
+                await this.establishConnection(token);
 
                 resolve(null);
             });
@@ -124,7 +124,7 @@ class Gateway extends Base {
         this.logger.info('Reconnecting to Discord Gateway...', 'Gateway Resume');
 
         return new Promise((resolve) => {
-            this.socket?.on('open', () => {
+            this.socket?.on('open', async () => {
                 // resuming connection with the gateway
                 this.send(GatewayOpcodes.Resume, {
                     token: token,
@@ -139,7 +139,7 @@ class Gateway extends Base {
                     .setTimestamp(new Date().toISOString());
 
                 this.logger.info("WebSocket it's on CONNECTED state.", 'Gateway Resume');
-                this.webhookLog({ embeds: [embed] });
+                await this.webhookLog({ embeds: [embed] });
 
                 resolve(this.socket);
             });
@@ -150,36 +150,36 @@ class Gateway extends Base {
                 this.logger.info('Pong received from Gateway!', 'Gateway Resume');
             });
 
-            this.socket?.on('close', (code: number) => {
+            this.socket?.on('close', async (code: number) => {
                 const embed = new EmbedBuilder()
                     .setColor(0xff0000)
                     .setTitle('Gateway Resume')
                     .setDescription(`Gateway connection was closed with code: ${code}`)
                     .setTimestamp(new Date().toISOString());
 
-                this.webhookLog({ embeds: [embed] });
+                await this.webhookLog({ embeds: [embed] });
                 this.logger.warn(`Error code: ${code}`, 'Gateway Resume');
-                
+
                 if (code === 1000 || code === 1001) {
                     this.logger.info('Connection closed successfully.', 'Gateway Resume');
                 } else {
                     this.logger.warn('Connection closed with errors. Attempt to reconnect', 'Gateway Resume');
-                    this.establishConnection(token);
+                    await this.establishConnection(token);
                 }
 
                 resolve(null);
             });
 
-            this.socket?.on('error', (error) => {
+            this.socket?.on('error', async (error) => {
                 const embed = new EmbedBuilder()
                     .setColor(0xff0000)
                     .setTitle('Gateway Resume')
                     .setDescription(`Error on Gateway connection: ${error}`)
                     .setTimestamp(new Date().toISOString());
 
-                this.webhookLog({ embeds: [embed] });
-                this.logger.error('Error on Websocket connection: ' + error, 'Gateway Resume');
-                this.establishConnection(token);
+                await this.webhookLog({ embeds: [embed] });
+                this.logger.error('Error on Websocket connection: ' + error.message, 'Gateway Resume');
+                await this.establishConnection(token);
 
                 resolve(null);
             });
@@ -189,7 +189,7 @@ class Gateway extends Base {
     }
 
     private async handleMessage(token: Snowflake, data: string): Promise<void> {
-        const { op, t, d, s }: GatewayReceivePayload = JSON.parse(data);
+        const { op, t, d, s } = JSON.parse(data) as GatewayReceivePayload;
 
         this.sequence = s;
 
@@ -204,10 +204,10 @@ class Gateway extends Base {
                 .setTimestamp(new Date().toISOString());
 
             this.logger.info(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`, 'Gateway Message');
-            this.webhookLog({ embeds: [embed] });
+            await this.webhookLog({ embeds: [embed] });
 
-            const pingInterval = setInterval(() => {
-                this.socket?.readyState === WebSocket.OPEN ? (this.socket.ping(), this.send(GatewayOpcodes.Heartbeat, null)) : (clearInterval(pingInterval), this.establishConnection(token));
+            const pingInterval = setInterval(async () => {
+                this.socket?.readyState === WebSocket.OPEN ? (this.socket.ping(), this.send(GatewayOpcodes.Heartbeat, null)) : (clearInterval(pingInterval), await this.establishConnection(token));
             }, d.heartbeat_interval);
         };
 
@@ -218,10 +218,10 @@ class Gateway extends Base {
                 .setDescription('Received reconnect opcode, reconnecting..')
                 .setTimestamp(new Date().toISOString());
 
-            this.webhookLog({ embeds: [embed] });
+            await this.webhookLog({ embeds: [embed] });
             this.logger.warn('Received reconnect opcode, reconnecting..', 'Gateway Message');
             this.socket?.close();
-            this.establishConnection(token);
+            await this.establishConnection(token);
         }
 
         if (op === GatewayOpcodes.InvalidSession) {
@@ -231,11 +231,11 @@ class Gateway extends Base {
                 .setDescription('Received invalid session opcode, reconnecting..')
                 .setTimestamp(new Date().toISOString());
 
-            this.webhookLog({ embeds: [embed] });
+            await this.webhookLog({ embeds: [embed] });
             this.logger.warn('Received invalid session opcode, reconnecting..', 'Gateway Message');
 
             this.socket?.close();
-            this.establishConnection(token);
+            await this.establishConnection(token);
         }
 
         // handling events:
@@ -249,7 +249,7 @@ class Gateway extends Base {
                     .setDescription('Received ready event, connection established!')
                     .setTimestamp(new Date().toISOString());
 
-                this.webhookLog({ embeds: [embed] });
+                await this.webhookLog({ embeds: [embed] });
 
                 this.resume_url = resume_gateway_url;
                 this.session = session_id;
@@ -260,22 +260,22 @@ class Gateway extends Base {
                 const { members, presences, guild_id } = d as GatewayGuildMembersChunkDispatchData;
 
                 if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
-                    const data: DiscordUser = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/' + members[0].user?.id, {
+                    const data: DiscordUser | undefined = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/' + members[0].user?.id, {
                         method: 'GET'
                     })
-                        .then((res) => res.data)
-                        .catch((err) => { this.logger.error('Error while fetching user profile: ' + err, 'Gateway Message'); });
+                        .then((res) => res.data as DiscordUser)
+                        .catch(() => undefined);
 
                     this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
 
                     // get track event
-                    if(this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
-                        const activity = this.member.activities.filter((activity) => activity.id === 'spotify:1')[0];
-                        
-                        if(activity.sync_id) {
+                    if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
+                        const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
+
+                        if (activity && activity.sync_id) {
                             const data = await this.spotify.getTrack(activity.sync_id);
 
-                            if(data && Object.keys(data).length) {
+                            if (data && Object.keys(data).length) {
                                 this.event.emit(SpotifyEvents.GetTrack, data);
                             }
                         }
@@ -293,13 +293,13 @@ class Gateway extends Base {
                     this.member = { ...this.member, user, activities, status, guild_id };
 
                     // get track event
-                    if(this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
-                        const activity = this.member.activities.filter((activity) => activity.id === 'spotify:1')[0];
-                        
-                        if(activity.sync_id) {
+                    if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
+                        const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
+
+                        if (activity && activity.sync_id) {
                             const data = await this.spotify.getTrack(activity.sync_id);
 
-                            if(data && Object.keys(data).length) {
+                            if (data && Object.keys(data).length) {
                                 this.event.emit(SpotifyEvents.GetTrack, data);
                             }
                         }
@@ -311,7 +311,7 @@ class Gateway extends Base {
         }
     }
 
-    private handleConnection(ws: WebSocket, req: IncomingMessage): void {
+    private async handleConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
         const id = Math.random().toString(36).substring(7);
 
         this.connections.set(id, ws);
@@ -326,7 +326,7 @@ class Gateway extends Base {
             setInterval(() => { connection.send(this.payloadData({ op: GatewayOpcodes.Heartbeat, d: { heartbeat_interval: interval } })); }, interval);
 
             const presenceUpdateHandler = (data: GatewayDispatchPayload) => { connection.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: data })); };
-            const guildMembersChunkHandler = (data: GatewayDispatchPayload ) => { connection.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data })); };
+            const guildMembersChunkHandler = (data: GatewayDispatchPayload) => { connection.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data })); };
             const spotifyTrackHandler = (data: SpotifyTrackResponse) => { connection.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data })); };
 
             this.event.on(GatewayDispatchEvents.PresenceUpdate, presenceUpdateHandler);
@@ -337,10 +337,10 @@ class Gateway extends Base {
                 connection?.readyState === WebSocket.OPEN ? connection.ping() : clearInterval(pingInterval);
             }, interval);
 
-            connection.on('message', (data: string) => {
+            connection.on('message', async (data: string) => {
                 const buffer = Buffer.from(data, 'hex');
                 const str = buffer.toString('utf8');
-                const { op, d }: GatewaySendPayload = JSON.parse(str);
+                const { op, d } = JSON.parse(str) as GatewaySendPayload;
 
                 switch (op) {
                     case GatewayOpcodes.Heartbeat: {
@@ -365,7 +365,7 @@ class Gateway extends Base {
                             .setDescription(`[${id}] - [${ip}]: requested a guild member.`)
                             .setTimestamp(new Date().toISOString());
 
-                        this.webhookLog({ embeds: [embed] });
+                        await this.webhookLog({ embeds: [embed] });
                         this.logger.info(`[${id}] - [${ip}]: requested a guild member.`, 'Connection');
                         break;
                     }
@@ -381,7 +381,7 @@ class Gateway extends Base {
                 this.logger.info(`[${id}] - [${ip}]: pong received from connection!`, 'Connection');
             });
 
-            connection?.on('close', (code: number) => {
+            connection?.on('close', async (code: number) => {
                 const embed = new EmbedBuilder()
                     .setColor(0xff0000)
                     .setTitle(`[${id}] - Connection closed!`)
@@ -389,7 +389,7 @@ class Gateway extends Base {
                     .setFooter({ text: `Connections: ${this.connections.size}` })
                     .setTimestamp(new Date().toISOString());
 
-                this.webhookLog({ embeds: [embed] });
+                await this.webhookLog({ embeds: [embed] });
                 this.logger.warn(`[${id}] - [${ip}]: was disconnected by code: ${code}.`, 'Connection');
                 this.logger.info(`${this.connections.size} connections opened.`, 'Connection');
 
@@ -399,10 +399,10 @@ class Gateway extends Base {
 
                 this.event.off(GatewayDispatchEvents.PresenceUpdate, presenceUpdateHandler);
                 this.event.off(GatewayDispatchEvents.GuildMembersChunk, guildMembersChunkHandler);
-                this.event.off(SpotifyEvents.GetTrack, spotifyTrackHandler);    
+                this.event.off(SpotifyEvents.GetTrack, spotifyTrackHandler);
             });
 
-            connection?.on('error', (error) => {
+            connection?.on('error', async (error) => {
                 const embed = new EmbedBuilder()
                     .setColor(0xff0000)
                     .setTitle(`[${id}] - Connection error!`)
@@ -410,7 +410,7 @@ class Gateway extends Base {
                     .setFooter({ text: `Connections: ${this.connections.size}` })
                     .setTimestamp(new Date().toISOString());
 
-                this.webhookLog({ embeds: [embed] });
+                await this.webhookLog({ embeds: [embed] });
                 this.logger.error(`[${id}] - [${ip}]: was disconnected by error: ${error.message}.`, 'Connection');
                 this.logger.info(`${this.connections.size} connections opened.`, 'Connection');
                 this.logger.warn(error.stack, 'Connection');
@@ -432,7 +432,7 @@ class Gateway extends Base {
                 .setFooter({ text: `Connections: ${this.connections.size}` })
                 .setTimestamp(new Date().toISOString());
 
-            this.webhookLog({ embeds: [embed] });
+            await this.webhookLog({ embeds: [embed] });
             this.logger.info(`[${id}] - [${ip}]: was connected successfully.`, 'Connection');
             this.logger.info('A new connection was opened.', 'Connection');
             this.logger.info(`${this.connections.size} connections opened.`, 'Connection');
@@ -455,7 +455,7 @@ class Gateway extends Base {
         return this.event.once(event, listener);
     }
 
-    private payloadData({ op, d, t }: { op: GatewayOpcodes | null, d?: any, t?: any }): string {
+    private payloadData({ op, d, t }: { op: GatewayOpcodes | null, d?: any | null, t?: GatewayDispatchEvents | SpotifyEvents | null }): string {
         return JSON.stringify({ op: op ?? null, t: t ?? null, d: d ?? null });
     }
 
@@ -467,7 +467,12 @@ class Gateway extends Base {
             },
             body: JSON.stringify(data, null, 2)
         })
-            .catch((err) => { this.logger.error(`Error while sending webhook: ${err}`, 'Webhook'); });
+            .catch((err: unknown) => {
+                this.logger.error((err as Error).message, [Gateway.name, this.webhookLog.name]);
+                this.logger.warn((err as Error).stack, [Gateway.name, this.webhookLog.name]);
+
+                this.logger.error(`Error while sending webhook: ${err}`, 'Webhook');
+            });
     }
 }
 

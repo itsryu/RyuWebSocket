@@ -1,14 +1,16 @@
 import { Request, Response } from 'express';
-import { RouteStructure } from '../../structures/RouteStructure';
-import { Server } from '../server';
+import { JSONResponse, RouteStructure } from '../../structures/RouteStructure';
 
-class NotFoundController extends RouteStructure { 
-    constructor(client: Server) {
-        super(client);
-    }
-
+class NotFoundController extends RouteStructure {
     run = (_: Request, res: Response) => {
-        res.status(404).json({ code: 404, message: 'Not Found' });
+        try {
+            res.status(404).json(new JSONResponse(404, 'Not Found').toJSON());
+        } catch (err) {
+            this.client.logger.error((err as Error).message, NotFoundController.name);
+            this.client.logger.warn((err as Error).stack, NotFoundController.name);
+
+            res.status(500).json(new JSONResponse(500, 'Internal Server Error').toJSON());
+        }
     };
 }
 
