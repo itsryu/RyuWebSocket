@@ -1,0 +1,92 @@
+div {
+    position: absolute;
+    width: 400px;
+    height: 200px;
+    inset: 0;
+    background-color: var(--backgroundColor);
+    color: #fff;
+    font-family: 'Century Gothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    display: flex;
+    flex-direction: column;
+    padding: 5px;
+    border-radius: var(--borderRadius);
+}
+
+div>div:first-child {
+    width: 400px;
+    height: 100px;
+    inset: 0;
+    display: flex;
+    flex-direction: row;
+    padding-bottom: 5px;
+    border-bottom: solid 0.5px hsl(0, 0%, 100%, 10%);
+}
+
+div>div:first-child>div:first-child {
+    display: flex;
+    flex-direction: row;
+    height: 80px;
+    width: 80px;
+}
+
+div>div:first-child>div:first-child>img {
+    border: solid 3px #747F8D;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    position: relative;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+div>div:first-child>div:last-child {
+    height: 80px;
+    width: 260px;
+}
+
+div>div:first-child>div:last-child>div {
+    display: flex;
+    flex-direction: row;
+    position: relative;
+    top: 50%;
+    transform: translate(0, -50%);
+    height: 25px;
+}
+
+div>div:first-child>div:last-child>div>h1 {
+    font-size: 1.15rem;
+    margin: 0 12px 0 0;
+    white-space: nowrap;
+}
+
+div>div:first-child>div:last-child>div>h1>span {
+    color: #ccc;
+    font-weight: lighter;
+}
+
+div>div:first-child>div:last-child>div>img {
+    width: auto;
+    height: 20px;
+    position: relative;
+    top: 50%;
+    transform: translate(0%, -50%);
+    margin-right: 7px;
+}
+
+div>div:last-child {
+    display: flex;
+    flex-direction: row;
+    height: 150px;
+    justify-content: center;
+    align-items: center;
+}
+
+div>div:last-child>p {
+    font-style: italic;
+    font-size: 0.8rem;
+    color: #aaa;
+    height: auto;
+    text-align: center;
+}

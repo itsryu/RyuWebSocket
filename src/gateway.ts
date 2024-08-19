@@ -5,9 +5,9 @@ import EventEmitter from 'node:events';
 import { IncomingMessage } from 'node:http';
 import { EmbedBuilder } from './structures/EmbedStructure';
 import axios from 'axios';
-import { SpotifyGateway } from './spotify';
 import { SpotifyEvents, SpotifyTrackResponse } from './types/SpotifyInterfaces';
 import { Base } from './base';
+import { SpotifyGetTrackController } from './api/routes';
 
 class Gateway extends Base {
     private wss!: WebSocket.Server;
@@ -19,7 +19,6 @@ class Gateway extends Base {
     private resume_url?: string;
     private session?: string;
     private sequence?: number | null;
-    private spotify: SpotifyGateway = new SpotifyGateway(process.env.SPOTIFY_ID, process.env.SPOTIFY_SECRET);
 
     public constructor(options: ClientOptions, websocketServer: WebSocket.Server) {
         super();
@@ -276,7 +275,7 @@ class Gateway extends Base {
                         const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
 
                         if (activity && activity.sync_id) {
-                            const data = await this.spotify.getTrack(activity.sync_id);
+                            const data = await SpotifyGetTrackController.getTrack(activity.sync_id);
 
                             if (data && Object.keys(data).length) {
                                 this.event.emit(SpotifyEvents.GetTrack, data);
@@ -300,7 +299,7 @@ class Gateway extends Base {
                         const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
 
                         if (activity && activity.sync_id) {
-                            const data = await this.spotify.getTrack(activity.sync_id);
+                            const data = await SpotifyGetTrackController.getTrack(activity.sync_id);
 
                             if (data && Object.keys(data).length) {
                                 this.event.emit(SpotifyEvents.GetTrack, data);

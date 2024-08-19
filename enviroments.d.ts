@@ -3,21 +3,21 @@ export { };
 declare global {
   namespace NodeJS {
     interface ProcessEnv {
-      CLIENT_TOKEN: string;
-      USER_TOKEN: string;
-      AUTH_KEY: string;
-      SPOTIFY_CREDENTIAL_URI: string;
-      SPOTIFY_GET_TRACK_URI;
-      LOCAL_URL: string;
-      DOMAIN_URL: string;
-      SPOTIFY_SECRET: string;
-      SPOTIFY_ID: string;
-      GATEWAY_URL: string;
-      WEBHOOK_URL: string;
-      GUILD_ID: string;
-      USER_ID: string;
-      STATE: string
-      PORT: number;
+      readonly CLIENT_TOKEN: string;
+      readonly USER_TOKEN: string;
+      readonly AUTH_KEY: string;
+      readonly SPOTIFY_CREDENTIAL_URI: string;
+      readonly SPOTIFY_GET_TRACK_URI: string;
+      readonly LOCAL_URL: string;
+      readonly DOMAIN_URL: string;
+      readonly SPOTIFY_SECRET: string;
+      readonly SPOTIFY_ID: string;
+      readonly GATEWAY_URL: string;
+      readonly WEBHOOK_URL: string;
+      readonly GUILD_ID: string;
+      readonly USER_ID: string;
+      readonly STATE: string
+      readonly PORT: number;
     }
   }
 }

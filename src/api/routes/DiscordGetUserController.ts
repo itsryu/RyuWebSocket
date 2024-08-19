@@ -1,13 +1,13 @@
 import { Request, Response } from 'express';
 import { JSONResponse, RouteStructure } from '../../structures/RouteStructure';
-import { Snowflake } from 'discord-api-types/globals';
+import { Snowflake } from 'discord-api-types/v10';
 import { DiscordUser } from '../../types/DiscordInterfaces';
 import axios from 'axios';
 
 class DiscordGetUserController extends RouteStructure {
     run = async (req: Request, res: Response) => {
         try {
-            const user = await this.getUser(req.params.id);
+            const user = await DiscordGetUserController.getUser(req.params.id);
 
             if (user) {
                 res.status(200).json(user);
@@ -22,7 +22,7 @@ class DiscordGetUserController extends RouteStructure {
         }
     };
 
-    private async getUser(id: Snowflake): Promise<DiscordUser | null> {
+    public static async getUser(id: Snowflake): Promise<DiscordUser | null> {
         const fetchUser = async (resolve: (V: DiscordUser | null) => void) => {
             try {
                 const data: DiscordUser | undefined = await axios.get(`https://discord.com/api/v10/users/${id}/profile`, {
@@ -39,10 +39,9 @@ class DiscordGetUserController extends RouteStructure {
                 } else {
                     resolve(null);
                 }
-
             } catch (err) {
-                this.client.logger.error((err as Error).message, DiscordGetUserController.name);
-                this.client.logger.warn((err as Error).stack, DiscordGetUserController.name);
+                console.error((err as Error).message, [DiscordGetUserController.name, DiscordGetUserController.getUser.name]);
+                console.warn((err as Error).stack, [DiscordGetUserController.name, DiscordGetUserController.getUser.name]);
 
                 resolve(null);
             }

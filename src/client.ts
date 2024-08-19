@@ -11,7 +11,7 @@ class Client extends Base {
     public server!: Server;
     public wss!: WebSocketServer;
 
-    public constructor() {
+    protected constructor() {
         super();
 
         process.on('uncaughtException', (err: Error) => { this.logger.error(err.stack, 'uncaughtException'); });
