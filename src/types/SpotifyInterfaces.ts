@@ -8,6 +8,14 @@ export interface SpotifyTokenResponse {
     expires_in: number;
 }
 
+export interface SpotifyRefreshTokenResponse {
+    access_token: string,
+    token_type: string,
+    expires_in: number,
+    refresh_token: string,
+    scope: string
+}
+
 interface Artist {
     external_urls: {
         spotify: string;

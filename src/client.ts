@@ -1,9 +1,10 @@
 import { createServer, Server } from 'http';
 import express, { Express } from 'express';
 import { WebSocketServer } from 'ws';
-import { GatewayIntentBits } from 'discord-api-types/v10';
+import { GatewayDispatchEvents, GatewayIntentBits, GatewayMessageCreateDispatchData } from 'discord-api-types/v10';
 import { Gateway } from './gateway';
 import { Base } from './base';
+import { inspect } from 'node:util';
 
 class Client extends Base {
     private port: number = process.env.PORT;
@@ -24,9 +25,26 @@ class Client extends Base {
 
         const gateway = new Gateway({
             intents: [
-                GatewayIntentBits.GuildPresences
+                GatewayIntentBits.Guilds,
+                GatewayIntentBits.GuildPresences,
+                GatewayIntentBits.GuildMessages,
+                GatewayIntentBits.MessageContent
             ]
         }, this.wss);
+
+        gateway.event.on(GatewayDispatchEvents.MessageCreate, async (message: GatewayMessageCreateDispatchData) => {
+            const { content, author } = message;
+            const prefix = 'm.';
+            const [...args] = content.slice(prefix.length).trim().split(/ +/g);
+
+            if (author.id === process.env.USER_ID && args[0] === 'eval') {
+                const res = args.slice(1).join(' ');
+                const result: unknown = await Promise.any([eval(res), Promise.reject(new Error('Nenhum resultado retornado.'))]);
+                const evaled = inspect(result);
+
+                console.log(evaled);
+            }
+        });
 
         await gateway.login(process.env.CLIENT_TOKEN);
 

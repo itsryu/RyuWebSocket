@@ -8,54 +8,59 @@ import * as ejs from 'ejs';
 class DiscordProfileController extends RouteStructure {
     run = async (req: Request, res: Response) => {
         const { id } = req.params;
-        const backgroundColor = req.query.bg ?? '#191919';
+        const backgroundColor = req.query.bg ?? '#010101';
         const borderRadius = req.query.border ?? '10px';
-        const user = await DiscordGetUserController.getUser(id);
+        const data = await DiscordGetUserController.getUser(id);
+        const isValidDiscordId = (id: string): boolean => /^\d{17,19}$/.test(id);
 
         try {
-            if (user) {
-                const profileImageUrl = await DiscordProfileController.svgConstructor(user);
-                const userNickname = user.user?.username;
+            if (isValidDiscordId(id)) {
+                if (data) {
+                    const profileImageUrl = await DiscordProfileController.avatarDataConstructor(data);
+                    const userNickname = data.user?.username;
 
-                ejs.renderFile('./views/svg.ejs', { backgroundColor, borderRadius, profileImageUrl, userNickname }, (err, svg) => {
-                    if (err) {
-                        return res.status(500).send(new JSONResponse(500, 'Internal Server Error').toJSON());
-                    } else {
-                        res.writeHead(200, {
-                            'Content-Type': 'image/svg+xml',
-                            'Content-Length': svg.length
-                        });
+                    ejs.renderFile('./views/svg.ejs', { backgroundColor, borderRadius, profileImageUrl, userNickname }, (err, svg) => {
+                        if (err) {
+                            return res.status(500).send(new JSONResponse(500, 'Internal Server Error').toJSON());
+                        } else {
+                            res.writeHead(200, {
+                                'Content-Type': 'image/svg+xml',
+                                'Content-Length': svg.length
+                            });
 
-                        res.end(svg);
-                    }
-                });
+                            res.end(svg);
+                        }
+                    });
+                } else {
+                    return void res.status(404).json(new JSONResponse(404, 'User not found').toJSON());
+                }
+            } else {
+                return void res.status(400).json(new JSONResponse(400, 'Invalid Discord ID').toJSON());
             }
         } catch (err) {
             this.client.logger.error((err as Error).message, DiscordProfileController.name);
             this.client.logger.warn((err as Error).stack, DiscordProfileController.name);
 
-            res.status(500).json(new JSONResponse(500, 'Internal Server Error').toJSON());
+            return void res.status(500).json(new JSONResponse(500, 'Internal Server Error').toJSON());
         }
     };
 
-    public static svgConstructor(data: DiscordUser) {
+    public static async avatarDataConstructor(data: DiscordUser): Promise<string> {
         const avatar = data.user?.avatar ?
             `https://cdn.discordapp.com/avatars/${data.user.id}/${data.user.avatar}.png?size=4096` :
             'https://cdn.discordapp.com/embed/avatars/0.png?size=4096';
 
-        return new Promise((resolve, reject) => {
+        return await new Promise((resolve, reject) => {
             get(avatar, (response) => {
                 const chunks: Uint8Array[] = [];
-                let contentType: string | null = null;
 
-                response.on('data', (chunk: Uint8Array) => {
-                    chunks.push(chunk);
-                });
+                response.on('data', (chunk: Uint8Array) => chunks.push(chunk));
 
                 response.on('end', () => {
                     const buffer = Buffer.concat(chunks);
-                    contentType = contentType ?? response.headers['content-type'] ?? 'image/png';
+                    const contentType = response.headers['content-type'] ?? 'image/png';
                     const dataUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
+
                     resolve(dataUrl);
                 });
             }).on('error', (error: Error) => {

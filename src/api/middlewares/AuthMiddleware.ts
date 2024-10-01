@@ -5,7 +5,7 @@ class AuthMiddleware extends RouteStructure {
     run = (req: Request, res: Response, next: NextFunction) => {
         const auth = req.headers.authorization;
         const [bearer, token] = auth?.length ? (auth.split(' ')) : ['Bearer', ''];
-        const allowedPaths = ['/', '/health', '/profile/:id'];
+        const allowedPaths = ['/', '/health', '/profile/:id', '*'];
 
         try {
             if (allowedPaths.some((path) => {
