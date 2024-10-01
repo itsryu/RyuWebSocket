@@ -1,78 +1,61 @@
-import * as winston from 'winston';
+import { Snowflake } from 'discord-api-types/v10';
+import { DiscordUser } from '../types/discordInterfaces';
+import { get } from 'https';
+import axios from 'axios';
 
-class Logger {
-    private logger: winston.Logger;
-
-    private readonly levels: winston.config.AbstractConfigSetLevels = {
-        error: 0,
-        warn: 1,
-        info: 2,
-        http: 3,
-        verbose: 4,
-        debug: 5,
-        silly: 6
-    };
-
-    constructor(level = 'info', environment = process.env.STATE) {
-        this.logger = winston.createLogger({
-            level,
-            levels: this.levels,
-            defaultMeta: { environment },
-            transports: [
-                new winston.transports.Console()
-            ],
-            format: winston.format.combine(
-                winston.format.timestamp(),
-                winston.format.errors({ stack: true }),
-                winston.format.splat(),
-                winston.format.json(),
-                winston.format.colorize({
-                    colors: {
-                        error: 'red',
-                        warn: 'yellow',
-                        info: 'green',
-                        debug: 'blue'
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+class Util {
+    public static async getDiscordUser(id: Snowflake): Promise<DiscordUser | null> {
+        const fetchUser = async (resolve: (V: DiscordUser | null) => void) => {
+            try {
+                const data: DiscordUser | undefined = await axios.get(`https://discord.com/api/v10/users/${id}/profile`, {
+                    method: 'GET',
+                    headers: {
+                        Authorization: process.env.USER_TOKEN
                     }
-                }),
-                winston.format.printf((info) => {
-                    const timestamp = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-                    return `[${timestamp}] [${info.level}] [${info.environment}] [${info.path}] ${info.message}`;
                 })
-            )
+                    .then((res) => res.data as DiscordUser)
+                    .catch(() => undefined);
+
+                if (data) {
+                    resolve(data);
+                } else {
+                    resolve(null);
+                }
+            } catch (err) {
+                console.error((err as Error).message, [Util.name, Util.getDiscordUser.name]);
+                console.warn((err as Error).stack, [Util.name, Util.getDiscordUser.name]);
+
+                resolve(null);
+            }
+        };
+
+        return await new Promise<DiscordUser | null>(fetchUser);
+    }
+
+    public static async discordAvatarConstructor(id: string, avatar: string): Promise<string> {
+        const icon = avatar ?
+            `https://cdn.discordapp.com/avatars/${id}/${avatar}.png?size=4096` :
+            'https://cdn.discordapp.com/embed/avatars/0.png?size=4096';
+
+        return await new Promise((resolve, reject) => {
+            get(icon, (response) => {
+                const chunks: Uint8Array[] = [];
+
+                response.on('data', (chunk: Uint8Array) => chunks.push(chunk));
+
+                response.on('end', () => {
+                    const buffer = Buffer.concat(chunks);
+                    const contentType = response.headers['content-type'] ?? 'image/png';
+                    const dataUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
+
+                    resolve(dataUrl);
+                });
+            }).on('error', (error: Error) => {
+                reject(error);
+            });
         });
-    }
-
-    public debug(message: string | string[] | undefined, meta: string | string[] | undefined): void {
-        if (message && Array.isArray(message)) message = message.join(' ');
-        if (meta && Array.isArray(meta)) meta = meta.join(' - ');
-        if (!message) message = '';
-
-        this.logger.debug(message, { path: meta });
-    }
-
-    public info(message: string | string[] | undefined, meta: string | string[] | undefined): void {
-        if (message && Array.isArray(message)) message = message.join(' ');
-        if (meta && Array.isArray(meta)) meta = meta.join(' - ');
-        if (!message) message = '';
-
-        this.logger.info(message, { path: meta });
-    }
-
-    public warn(message: string | string[] | undefined, meta: string | string[] | undefined): void {
-        if (message && Array.isArray(message)) message = message.join(' ');
-        if (meta && Array.isArray(meta)) meta = meta.join(' - ');
-        if (!message) message = '';
-
-        this.logger.warn(message, { path: meta });
-    }
-
-    public error(message: string | string[] | undefined, meta: string | string[] | undefined): void {
-        if (message && Array.isArray(message)) message = message.join(' ');
-        if (meta && Array.isArray(meta)) meta = meta.join(' - ');
-        if (!message) message = '';
-
-        this.logger.error(message, { path: meta });
     }
 }
 
-export { Logger };
+export { Util };
