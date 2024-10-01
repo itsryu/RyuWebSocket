@@ -1,11 +1,11 @@
 import WebSocket from 'ws';
-import { ClientOptions, DiscordUser, MemberPresence } from './types/DiscordInterfaces';
+import { ClientOptions, DiscordUser, MemberPresence } from './types/discordInterfaces';
 import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewaySendPayload, GatewayRequestGuildMembersDataWithUserIds, RESTPostAPIWebhookWithTokenJSONBody, GatewayPresenceUpdateDispatchData, GatewayGuildMembersChunkDispatchData, GatewayReadyDispatchData, GatewayDispatchPayload, GatewayMessageCreateDispatchData } from 'discord-api-types/v10';
 import EventEmitter from 'node:events';
 import { IncomingMessage } from 'node:http';
-import { EmbedBuilder } from './structures/EmbedStructure';
+import { EmbedBuilder } from './structures/embedStructure';
 import axios from 'axios';
-import { SpotifyEvents, SpotifyTrackResponse } from './types/SpotifyInterfaces';
+import { SpotifyEvents, SpotifyTrackResponse } from './types/spotifyInterfaces';
 import { Base } from './base';
 import { SpotifyGetTrackController } from './api/routes';
 

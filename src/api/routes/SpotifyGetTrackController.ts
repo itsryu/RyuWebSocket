@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import { JSONResponse, RouteStructure } from '../../structures/RouteStructure';
-import { SpotifyTokenResponse, SpotifyTrackResponse } from '../../types/SpotifyInterfaces';
+import { JSONResponse, RouteStructure } from '../../structures/routeStructure';
+import { SpotifyTokenResponse, SpotifyTrackResponse } from '../../types/spotifyInterfaces';
 import axios from 'axios';
 
 class SpotifyGetTrackController extends RouteStructure {;

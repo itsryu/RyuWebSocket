@@ -1,4 +1,4 @@
-import { Logger } from './utils/util';
+import { Logger } from './utils/logger';
 
 class Base {
     public logger: Logger = new Logger();

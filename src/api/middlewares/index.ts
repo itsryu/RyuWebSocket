@@ -1,2 +1,2 @@
-export * from './InfoMiddleware';
-export * from './AuthMiddleware';
+export * from './infoMiddleware';
+export * from './authMiddleware';

@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from 'express';
-import { RouteStructure } from '../../structures/RouteStructure';
+import { RouteStructure } from '../../structures/routeStructure';
 
 class InfoMiddleware extends RouteStructure {
     run = (req: Request, _: Response, next: NextFunction) => {

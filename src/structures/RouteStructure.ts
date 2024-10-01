@@ -1,7 +1,7 @@
 
 import { NextFunction, Request, Response } from 'express';
 import { Server } from '../api/server';
-import { HTTPStatus } from '../types/HTTPSInterfaces';
+import { HTTPStatus } from '../types/httpsInterfaces';
 
 interface JSONObjectResponse<T = any> {
     code: HTTPStatus;

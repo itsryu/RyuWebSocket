@@ -2,7 +2,7 @@ import express, { Router } from 'express';
 import { Client } from '../client';
 import cors from 'cors';
 import { join } from 'node:path';
-import { RouteStructure } from '../structures/RouteStructure';
+import { RouteStructure } from '../structures/routeStructure';
 import { AuthMiddleware, InfoMiddleware } from './middlewares/index';
 import { NotFoundController, HomeController, SpotifyGetTrackController, DiscordGetUserController, HealthCheckController, DiscordProfileController } from './routes/index';
 
