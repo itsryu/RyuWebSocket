@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { JSONResponse, RouteStructure } from '../../structures/routeStructure';
+import { JSONResponse, RouteStructure } from '../../structures';
 import { Util } from '../../utils/util';
 
 class DiscordGetUserController extends RouteStructure {
@@ -21,4 +21,6 @@ class DiscordGetUserController extends RouteStructure {
     };
 }
 
-export { DiscordGetUserController };
+export { 
+    DiscordGetUserController 
+};

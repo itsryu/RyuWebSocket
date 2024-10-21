@@ -51,4 +51,7 @@ abstract class RouteStructure<T = Request, K = Response, N = NextFunction, V = v
     public abstract run(req: T, res: K, next: N): Promise<V> | V;
 }
 
-export { RouteStructure, JSONResponse };
+export { 
+    RouteStructure, 
+    JSONResponse 
+};

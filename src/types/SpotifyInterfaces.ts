@@ -67,4 +67,4 @@ export interface SpotifyTrackResponse {
     duration_ms: number;
     type: string;
     uri: string;
-}
+};

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { JSONResponse, RouteStructure } from '../../structures/routeStructure';
+import { JSONResponse, RouteStructure } from '../../structures';
 import { SpotifyTokenResponse, SpotifyTrackResponse } from '../../types/spotifyInterfaces';
 import axios from 'axios';
 
@@ -94,4 +94,6 @@ class SpotifyGetTrackController extends RouteStructure {;
     }
 }
 
-export { SpotifyGetTrackController };
+export { 
+    SpotifyGetTrackController 
+};

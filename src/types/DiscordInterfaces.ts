@@ -1,11 +1,11 @@
 import { GatewayGuildMembersChunkDispatchData, GatewayIntentBits, GatewayPresenceUpdateDispatchData } from 'discord-api-types/v10';
 
 export interface ClientOptions {
-  intents: GatewayIntentBits[]
+  intents: GatewayIntentBits[];
 }
 
 export interface MemberPresence extends GatewayPresenceUpdateDispatchData, GatewayGuildMembersChunkDispatchData {
-  data: DiscordUser | undefined
+  data: DiscordUser | undefined;
 }
 
 interface ConnectedAccount {

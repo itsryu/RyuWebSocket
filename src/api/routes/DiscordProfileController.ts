@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { JSONResponse, RouteStructure } from '../../structures/routeStructure';
+import { JSONResponse, RouteStructure } from '../../structures';
 import * as ejs from 'ejs';
 import { Util } from '../../utils/util';
 
@@ -44,4 +44,6 @@ class DiscordProfileController extends RouteStructure {
     };
 }
 
-export { DiscordProfileController };
+export { 
+    DiscordProfileController 
+};

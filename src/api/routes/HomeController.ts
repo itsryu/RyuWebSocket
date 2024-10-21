@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { JSONResponse, RouteStructure } from '../../structures/routeStructure';
+import { JSONResponse, RouteStructure } from '../../structures';
 
 class HomeController extends RouteStructure {
     run = (_: Request, res: Response) => {
@@ -14,4 +14,6 @@ class HomeController extends RouteStructure {
     };
 }
 
-export { HomeController };
+export { 
+    HomeController 
+};

@@ -1,4 +1,4 @@
-import { RouteStructure } from '../structures/routeStructure';
+import { RouteStructure } from '../structures';
 
 interface Route {
     method: HttpMethod;
