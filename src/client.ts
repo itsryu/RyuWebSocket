@@ -5,6 +5,7 @@ import { GatewayDispatchEvents, GatewayIntentBits, GatewayMessageCreateDispatchD
 import { Gateway } from './gateway';
 import { Base } from './base';
 import { inspect } from 'node:util';
+import { Logger } from './utils/logger';
 
 class Client extends Base {
     private port: number = process.env.PORT;
@@ -15,8 +16,8 @@ class Client extends Base {
     protected constructor() {
         super();
 
-        process.on('uncaughtException', (err: Error) => { this.logger.error(err.stack, 'uncaughtException'); });
-        process.on('unhandledRejection', (err: Error) => { this.logger.error(err.stack, 'unhandledRejection'); });
+        process.on('uncaughtException', (err: Error) => { Logger.error(err.stack, 'uncaughtException'); });
+        process.on('unhandledRejection', (err: Error) => { Logger.error(err.stack, 'unhandledRejection'); });
     }
 
     public async listen() {
@@ -49,7 +50,7 @@ class Client extends Base {
         await gateway.login(process.env.CLIENT_TOKEN);
 
         this.server.listen(this.port, () => {
-            this.logger.info(`Server is running at ${process.env.STATE == 'development' ? `${process.env.LOCAL_URL}:${this.port}/` : process.env.DOMAIN_URL}`, 'Server');
+            Logger.info(`Server is running at ${process.env.STATE == 'development' ? `${process.env.LOCAL_URL}:${this.port}/` : process.env.DOMAIN_URL}`, 'Server');
         });
     }
 }

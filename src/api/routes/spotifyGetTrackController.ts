@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { JSONResponse, RouteStructure } from '../../structures';
 import { SpotifyTokenResponse, SpotifyTrackResponse } from '../../types/spotifyInterfaces';
 import axios from 'axios';
+import { Logger } from '../../utils/logger';
 
 class SpotifyGetTrackController extends RouteStructure {;
     private static token: string | null = null;
@@ -19,8 +20,8 @@ class SpotifyGetTrackController extends RouteStructure {;
                 res.status(404).json(new JSONResponse(404, 'Not Found').toJSON());
             }
         } catch (err) {
-            this.client.logger.error((err as Error).message, SpotifyGetTrackController.name);
-            this.client.logger.warn((err as Error).stack, SpotifyGetTrackController.name);
+            Logger.error((err as Error).message, SpotifyGetTrackController.name);
+            Logger.warn((err as Error).stack, SpotifyGetTrackController.name);
 
             res.status(500).json(new JSONResponse(500, 'Internal Server Error').toJSON());
         }

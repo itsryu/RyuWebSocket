@@ -8,6 +8,7 @@ import axios from 'axios';
 import { SpotifyEvents, SpotifyTrackResponse } from './types';
 import { Base } from './base';
 import { SpotifyGetTrackController } from './api/routes';
+import { Logger } from './utils/logger';
 
 class Gateway extends Base {
     private wss!: WebSocket.Server;
@@ -69,7 +70,7 @@ class Gateway extends Base {
     private connect(token: Snowflake): Promise<WebSocket | null> {
         this.socket = new WebSocket(process.env.GATEWAY_URL);
 
-        this.logger.info('Connecting to Discord Gateway...', 'Gateway');
+        Logger.info('Connecting to Discord Gateway...', 'Gateway');
 
         return new Promise((resolve) => {
             this.socket?.on('open', async () => {
@@ -82,7 +83,7 @@ class Gateway extends Base {
                     .setDescription('WebSocket connection was opened successfully!')
                     .setTimestamp(new Date().toISOString());
 
-                this.logger.info("WebSocket it's on CONNECTED state.", 'Gateway');
+                Logger.info("WebSocket it's on CONNECTED state.", 'Gateway');
                 await this.webhookLog({ embeds: [embed] });
 
                 resolve(this.socket);
@@ -91,7 +92,7 @@ class Gateway extends Base {
             this.socket?.on('message', this.handleMessage.bind(this, token));
 
             this.socket?.on('pong', () => {
-                this.logger.info('Pong received from Gateway!', 'Gateway');
+                Logger.info('Pong received from Gateway!', 'Gateway');
             });
 
             this.socket?.on('close', async (code: number) => {
@@ -102,12 +103,12 @@ class Gateway extends Base {
                     .setTimestamp(new Date().toISOString());
 
                 await this.webhookLog({ embeds: [embed] });
-                this.logger.warn(`Error code: ${code}`, 'Gateway');
+                Logger.warn(`Error code: ${code}`, 'Gateway');
 
                 if (code === 1000 || code === 1001) {
-                    this.logger.info('Connection closed successfully.', 'Gateway');
+                    Logger.info('Connection closed successfully.', 'Gateway');
                 } else {
-                    this.logger.warn('Connection closed with errors. Attempt to reconnect', 'Gateway');
+                    Logger.warn('Connection closed with errors. Attempt to reconnect', 'Gateway');
                     await this.establishConnection(token);
                 }
 
@@ -122,7 +123,7 @@ class Gateway extends Base {
                     .setTimestamp(new Date().toISOString());
 
                 await this.webhookLog({ embeds: [embed] });
-                this.logger.error('Error on Websocket connection: ' + error.message, 'Gateway');
+                Logger.error('Error on Websocket connection: ' + error.message, 'Gateway');
                 await this.establishConnection(token);
 
                 resolve(null);
@@ -136,7 +137,7 @@ class Gateway extends Base {
     private resumeConnection(token: Snowflake): Promise<WebSocket | null> {
         this.socket = new WebSocket(`${this.resume_url}?v=10&encoding=json`);
 
-        this.logger.info('Reconnecting to Discord Gateway...', 'Gateway Resume');
+        Logger.info('Reconnecting to Discord Gateway...', 'Gateway Resume');
 
         return new Promise((resolve) => {
             this.socket?.on('open', async () => {
@@ -149,7 +150,7 @@ class Gateway extends Base {
                     .setDescription('WebSocket connection was resumed successfully!')
                     .setTimestamp(new Date().toISOString());
 
-                this.logger.info("WebSocket it's on CONNECTED state.", 'Gateway Resume');
+                Logger.info("WebSocket it's on CONNECTED state.", 'Gateway Resume');
                 await this.webhookLog({ embeds: [embed] });
 
                 resolve(this.socket);
@@ -158,7 +159,7 @@ class Gateway extends Base {
             this.socket?.on('message', this.handleMessage.bind(this, token));
 
             this.socket?.on('pong', () => {
-                this.logger.info('Pong received from Gateway!', 'Gateway Resume');
+                Logger.info('Pong received from Gateway!', 'Gateway Resume');
             });
 
             this.socket?.on('close', async (code: number) => {
@@ -169,12 +170,12 @@ class Gateway extends Base {
                     .setTimestamp(new Date().toISOString());
 
                 await this.webhookLog({ embeds: [embed] });
-                this.logger.warn(`Error code: ${code}`, 'Gateway Resume');
+                Logger.warn(`Error code: ${code}`, 'Gateway Resume');
 
                 if (code === 1000 || code === 1001) {
-                    this.logger.info('Connection closed successfully.', 'Gateway Resume');
+                    Logger.info('Connection closed successfully.', 'Gateway Resume');
                 } else {
-                    this.logger.warn('Connection closed with errors. Attempt to reconnect', 'Gateway Resume');
+                    Logger.warn('Connection closed with errors. Attempt to reconnect', 'Gateway Resume');
                     await this.establishConnection(token);
                 }
 
@@ -189,7 +190,7 @@ class Gateway extends Base {
                     .setTimestamp(new Date().toISOString());
 
                 await this.webhookLog({ embeds: [embed] });
-                this.logger.error('Error on Websocket connection: ' + error.message, 'Gateway Resume');
+                Logger.error('Error on Websocket connection: ' + error.message, 'Gateway Resume');
                 await this.establishConnection(token);
 
                 resolve(null);
@@ -214,7 +215,7 @@ class Gateway extends Base {
                 .setDescription(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`)
                 .setTimestamp(new Date().toISOString());
 
-            this.logger.info(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`, 'Gateway Message');
+            Logger.info(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`, 'Gateway Message');
             await this.webhookLog({ embeds: [embed] });
 
             this.heartbeatInterval(d.heartbeat_interval, this.sequence);
@@ -228,7 +229,7 @@ class Gateway extends Base {
                 .setTimestamp(new Date().toISOString());
 
             await this.webhookLog({ embeds: [embed] });
-            this.logger.warn('Received reconnect opcode, reconnecting..', 'Gateway Message');
+            Logger.warn('Received reconnect opcode, reconnecting..', 'Gateway Message');
             this.socket?.close();
             await this.establishConnection(token);
         }
@@ -241,7 +242,7 @@ class Gateway extends Base {
                 .setTimestamp(new Date().toISOString());
 
             await this.webhookLog({ embeds: [embed] });
-            this.logger.warn('Received invalid session opcode, reconnecting..', 'Gateway Message');
+            Logger.warn('Received invalid session opcode, reconnecting..', 'Gateway Message');
 
             this.socket?.close();
             await this.establishConnection(token);
@@ -392,7 +393,7 @@ class Gateway extends Base {
                             .setTimestamp(new Date().toISOString());
 
                         await this.webhookLog({ embeds: [embed] });
-                        this.logger.info(`[${id}] - [${ip}]: requested a guild member.`, 'Connection');
+                        Logger.info(`[${id}] - [${ip}]: requested a guild member.`, 'Connection');
                         break;
                     }
 
@@ -404,7 +405,7 @@ class Gateway extends Base {
             });
 
             connection?.on('pong', () => {
-                this.logger.info(`[${id}] - [${ip}]: pong received from connection!`, 'Connection');
+                Logger.info(`[${id}] - [${ip}]: pong received from connection!`, 'Connection');
             });
 
             connection?.on('close', async (code: number) => {
@@ -416,8 +417,8 @@ class Gateway extends Base {
                     .setTimestamp(new Date().toISOString());
 
                 await this.webhookLog({ embeds: [embed] });
-                this.logger.warn(`[${id}] - [${ip}]: was disconnected by code: ${code}.`, 'Connection');
-                this.logger.info(`${this.connections.size} connections opened.`, 'Connection');
+                Logger.warn(`[${id}] - [${ip}]: was disconnected by code: ${code}.`, 'Connection');
+                Logger.info(`${this.connections.size} connections opened.`, 'Connection');
 
                 connection?.close();
                 this.connections.delete(id);
@@ -437,9 +438,9 @@ class Gateway extends Base {
                     .setTimestamp(new Date().toISOString());
 
                 await this.webhookLog({ embeds: [embed] });
-                this.logger.error(`[${id}] - [${ip}]: was disconnected by error: ${error.message}.`, 'Connection');
-                this.logger.info(`${this.connections.size} connections opened.`, 'Connection');
-                this.logger.warn(error.stack, 'Connection');
+                Logger.error(`[${id}] - [${ip}]: was disconnected by error: ${error.message}.`, 'Connection');
+                Logger.info(`${this.connections.size} connections opened.`, 'Connection');
+                Logger.warn(error.stack, 'Connection');
 
                 connection?.close();
                 this.connections.delete(id);
@@ -459,9 +460,9 @@ class Gateway extends Base {
                 .setTimestamp(new Date().toISOString());
 
             await this.webhookLog({ embeds: [embed] });
-            this.logger.info(`[${id}] - [${ip}]: was connected successfully.`, 'Connection');
-            this.logger.info('A new connection was opened.', 'Connection');
-            this.logger.info(`${this.connections.size} connections opened.`, 'Connection');
+            Logger.info(`[${id}] - [${ip}]: was connected successfully.`, 'Connection');
+            Logger.info('A new connection was opened.', 'Connection');
+            Logger.info(`${this.connections.size} connections opened.`, 'Connection');
         }
     }
 
@@ -494,8 +495,8 @@ class Gateway extends Base {
             body: JSON.stringify(data, null, 2)
         })
             .catch((err: unknown) => {
-                this.logger.error((err as Error).message, [Gateway.name, this.webhookLog.name]);
-                this.logger.warn((err as Error).stack, [Gateway.name, this.webhookLog.name]);
+                Logger.error((err as Error).message, [Gateway.name, this.webhookLog.name]);
+                Logger.warn((err as Error).stack, [Gateway.name, this.webhookLog.name]);
             });
     }
 }

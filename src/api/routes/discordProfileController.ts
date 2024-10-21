@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { JSONResponse, RouteStructure } from '../../structures';
 import * as ejs from 'ejs';
 import { Util } from '../../utils/util';
+import { Logger } from '../../utils/logger';
 
 class DiscordProfileController extends RouteStructure {
     run = async (req: Request, res: Response) => {
@@ -36,8 +37,8 @@ class DiscordProfileController extends RouteStructure {
                 return void res.status(400).json(new JSONResponse(400, 'Invalid Discord ID').toJSON());
             }
         } catch (err) {
-            this.client.logger.error((err as Error).message, DiscordProfileController.name);
-            this.client.logger.warn((err as Error).stack, DiscordProfileController.name);
+            Logger.error((err as Error).message, DiscordProfileController.name);
+            Logger.warn((err as Error).stack, DiscordProfileController.name);
 
             return void res.status(500).json(new JSONResponse(500, 'Internal Server Error').toJSON());
         }
