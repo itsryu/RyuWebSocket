@@ -1,5 +1,6 @@
 import { config } from 'dotenv';
 import { Server } from './src/api/server';
+import { Logger } from './src/utils/logger';
 
 config({ path: './.env' });
 
@@ -8,6 +9,6 @@ config({ path: './.env' });
     await server.listen();
 })()
     .catch((err: unknown) => {
-        console.error((err as Error).message);
+        Logger.error((err as Error).message, 'Launcher');
         process.exit(1);
     });

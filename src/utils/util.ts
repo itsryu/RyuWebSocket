@@ -2,8 +2,8 @@ import { Snowflake } from 'discord-api-types/v10';
 import { DiscordUser } from '../types/discordInterfaces';
 import { get } from 'https';
 import axios from 'axios';
+import { Logger } from './logger';
 
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 class Util {
     public static async getDiscordUser(id: Snowflake): Promise<DiscordUser | null> {
         const fetchUser = async (resolve: (V: DiscordUser | null) => void) => {
@@ -23,8 +23,8 @@ class Util {
                     resolve(null);
                 }
             } catch (err) {
-                console.error((err as Error).message, [Util.name, Util.getDiscordUser.name]);
-                console.warn((err as Error).stack, [Util.name, Util.getDiscordUser.name]);
+                Logger.error((err as Error).message, [Util.name, Util.getDiscordUser.name]);
+                Logger.warn((err as Error).stack, [Util.name, Util.getDiscordUser.name]);
 
                 resolve(null);
             }
@@ -34,27 +34,34 @@ class Util {
     }
 
     public static async discordAvatarConstructor(id: string, avatar: string): Promise<string> {
-        const icon = avatar ?
-            `https://cdn.discordapp.com/avatars/${id}/${avatar}.png?size=4096` :
-            'https://cdn.discordapp.com/embed/avatars/0.png?size=4096';
+        try {
+            const icon = avatar ?
+                `https://cdn.discordapp.com/avatars/${id}/${avatar}.png?size=4096` :
+                'https://cdn.discordapp.com/embed/avatars/0.png?size=4096';
 
-        return await new Promise((resolve, reject) => {
-            get(icon, (response) => {
-                const chunks: Uint8Array[] = [];
+            return await new Promise((resolve, reject) => {
+                get(icon, (response) => {
+                    const chunks: Uint8Array[] = [];
 
-                response.on('data', (chunk: Uint8Array) => chunks.push(chunk));
+                    response.on('data', (chunk: Uint8Array) => chunks.push(chunk));
 
-                response.on('end', () => {
-                    const buffer = Buffer.concat(chunks);
-                    const contentType = response.headers['content-type'] ?? 'image/png';
-                    const dataUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
+                    response.on('end', () => {
+                        const buffer = Buffer.concat(chunks);
+                        const contentType = response.headers['content-type'] ?? 'image/png';
+                        const dataUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
 
-                    resolve(dataUrl);
+                        resolve(dataUrl);
+                    });
+                }).on('error', (error: Error) => {
+                    reject(error);
                 });
-            }).on('error', (error: Error) => {
-                reject(error);
             });
-        });
+        } catch (err) {
+            Logger.error((err as Error).message, [Util.name, Util.discordAvatarConstructor.name]);
+            Logger.warn((err as Error).stack, [Util.name, Util.discordAvatarConstructor.name]);
+
+            return '';
+        }
     }
 }
 

@@ -55,8 +55,8 @@ class SpotifyGetTrackController extends RouteStructure {;
                         resolve(null);
                     }
                 } catch (err) {
-                    console.error((err as Error).message, [SpotifyGetTrackController.name, SpotifyGetTrackController.fetchToken.name]);
-                    console.warn((err as Error).stack, [SpotifyGetTrackController.name, SpotifyGetTrackController.fetchToken.name]);
+                    Logger.error((err as Error).message, [SpotifyGetTrackController.name, SpotifyGetTrackController.fetchToken.name]);
+                    Logger.warn((err as Error).stack, [SpotifyGetTrackController.name, SpotifyGetTrackController.fetchToken.name]);
 
                     resolve(null);
                 }
@@ -84,8 +84,8 @@ class SpotifyGetTrackController extends RouteStructure {;
                     resolve(null);
                 }
             } catch (err) {
-                console.error((err as Error).message, [SpotifyGetTrackController.name, SpotifyGetTrackController.getTrack.name]);
-                console.warn((err as Error).stack, [SpotifyGetTrackController.name, SpotifyGetTrackController.getTrack.name]);
+                Logger.error((err as Error).message, [SpotifyGetTrackController.name, SpotifyGetTrackController.getTrack.name]);
+                Logger.warn((err as Error).stack, [SpotifyGetTrackController.name, SpotifyGetTrackController.getTrack.name]);
 
                 resolve(null);
             }

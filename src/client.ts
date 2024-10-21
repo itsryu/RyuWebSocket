@@ -43,7 +43,7 @@ class Client extends Base {
                 const result: unknown = await Promise.any([eval(res), Promise.reject(new Error('Nenhum resultado retornado.'))]);
                 const evaled = inspect(result);
 
-                console.log(evaled);
+                Logger.debug(evaled, 'Eval');
             }
         });
 
