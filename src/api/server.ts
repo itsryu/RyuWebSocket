@@ -22,6 +22,7 @@ class Server extends Client {
     private config(): void {
         this.app.set('view engine', 'ejs');
         this.app.set('views', join(__dirname, '../views'));
+        this.app.set('trust proxy', true);
         this.app.use(express.static(join(__dirname, '../public')));
         this.app.use(cors());
         this.app.use(express.json());

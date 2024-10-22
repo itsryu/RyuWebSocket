@@ -1,4 +1,4 @@
-import { GatewayGuildMembersChunkDispatchData, GatewayIntentBits, GatewayPresenceUpdateDispatchData } from 'discord-api-types/v10';
+import { GatewayGuildMembersChunkDispatchData, GatewayIntentBits, GatewayOpcodes, GatewayPresenceUpdateDispatchData } from 'discord-api-types/v10';
 
 export interface ClientOptions {
   intents: GatewayIntentBits[];
@@ -46,8 +46,8 @@ interface UserProfile {
   profile_effect: any;
   banner: string;
   theme_colors: number[];
-  popout_animation_particle_type: any; 
-  emoji: any; 
+  popout_animation_particle_type: any;
+  emoji: any;
 }
 
 interface UserBadges {
@@ -74,4 +74,50 @@ export interface DiscordUser {
   guild_badges: any[];
   mutual_guilds: MutualGuild[];
   legacy_username: string;
+}
+
+export enum WebSocketShardDestroyRecovery {
+  Reconnect,
+  Resume,
+}
+
+export interface WebSocketShardDestroyOptions {
+  code?: number;
+  reason?: string;
+  recover?: WebSocketShardDestroyRecovery;
+}
+
+export enum WebSocketShardEvents {
+  Closed = 'closed',
+  Debug = 'debug',
+  Dispatch = 'dispatch',
+  Error = 'error',
+  HeartbeatComplete = 'heartbeat',
+  Hello = 'hello',
+  Ready = 'ready',
+  Resumed = 'resumed',
+  SocketError = 'socketError',
+}
+
+export enum WebSocketShardStatus {
+  Idle,
+  Connecting,
+  Resuming,
+  Ready,
+}
+
+export enum CloseCodes {
+  Normal = 1_000,
+  Resuming = 4_200,
+}
+
+export const ImportantGatewayOpcodes = new Set([
+  GatewayOpcodes.Heartbeat,
+  GatewayOpcodes.Identify,
+  GatewayOpcodes.Resume
+]);
+
+export interface SendRateLimitState {
+  resetAt: number;
+  sent: number;
 }

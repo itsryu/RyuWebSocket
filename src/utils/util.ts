@@ -1,5 +1,5 @@
 import { Snowflake } from 'discord-api-types/v10';
-import { DiscordUser } from '../types/discordInterfaces';
+import { DiscordUser, SendRateLimitState } from '../types/discordInterfaces';
 import { get } from 'https';
 import axios from 'axios';
 import { Logger } from './logger';
@@ -62,6 +62,13 @@ class Util {
 
             return '';
         }
+    }
+
+    static getInitialSendRateLimitState(): SendRateLimitState {
+        return {
+            sent: 0,
+            resetAt: Date.now() + 60_000
+        };
     }
 }
 

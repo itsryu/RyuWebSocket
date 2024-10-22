@@ -3,19 +3,16 @@ import express, { Express } from 'express';
 import { WebSocketServer } from 'ws';
 import { GatewayDispatchEvents, GatewayIntentBits, GatewayMessageCreateDispatchData } from 'discord-api-types/v10';
 import { Gateway } from './gateway';
-import { Base } from './base';
 import { inspect } from 'node:util';
 import { Logger } from './utils/logger';
 
-class Client extends Base {
+class Client {
     private port: number = process.env.PORT;
     public app: Express = express();
     public server!: Server;
     public wss!: WebSocketServer;
 
     protected constructor() {
-        super();
-
         process.on('uncaughtException', (err: Error) => { Logger.error(err.stack, 'uncaughtException'); });
         process.on('unhandledRejection', (err: Error) => { Logger.error(err.stack, 'unhandledRejection'); });
     }
