@@ -1,4 +1,6 @@
-import { GatewayGuildMembersChunkDispatchData, GatewayIntentBits, GatewayOpcodes, GatewayPresenceUpdateDispatchData } from 'discord-api-types/v10';
+import { GatewayDispatchEvents, GatewayGuildMembersChunkDispatchData, GatewayIntentBits, GatewayOpcodes, GatewayPresenceUpdateDispatchData, GatewayRequestGuildMembersDataWithUserIds } from 'discord-api-types/v10';
+import { WebSocket } from 'ws';
+import { SpotifyEvents, SpotifyTrackResponse } from './spotifyInterfaces';
 
 export interface ClientOptions {
   intents: GatewayIntentBits[];
@@ -6,6 +8,28 @@ export interface ClientOptions {
 
 export interface MemberPresence extends GatewayPresenceUpdateDispatchData, GatewayGuildMembersChunkDispatchData {
   data: DiscordUser | undefined;
+}
+
+export enum WebSocketState {
+  Connected = 'Connected',
+  Disconnected = 'Disconnected',
+  Reconnecting = 'Reconnecting',
+  Heartbeat = 'Heartbeat',
+}
+
+export type WebSocketReceivePayloadEvents = SpotifyEvents | GatewayDispatchEvents | WebSocketState;
+
+export enum WebsocketOpcodes {
+  Connected = 100,
+  Disconnected = 101,
+  Reconnecting = 102,
+  Heartbeat = 103,
+}
+
+export interface WebsocketReceivePayload {
+  op: GatewayOpcodes | WebsocketOpcodes | null;
+  d?: SpotifyTrackResponse | MemberPresence | GatewayRequestGuildMembersDataWithUserIds | null;
+  t?: WebSocketReceivePayloadEvents | null;
 }
 
 interface ConnectedAccount {
@@ -111,13 +135,23 @@ export enum CloseCodes {
   Resuming = 4_200,
 }
 
-export const ImportantGatewayOpcodes = new Set([
-  GatewayOpcodes.Heartbeat,
-  GatewayOpcodes.Identify,
-  GatewayOpcodes.Resume
-]);
+export const ImportantGatewayOpcodes = new Set(
+  [
+    GatewayOpcodes.Heartbeat,
+    GatewayOpcodes.Identify,
+    GatewayOpcodes.Resume
+  ]
+);
 
 export interface SendRateLimitState {
   resetAt: number;
   sent: number;
+}
+
+export interface WebSocketUser {
+  id: string;
+  ip: string | string[] | undefined;
+  isAlive: boolean;
+  pingInterval?: NodeJS.Timeout | null;
+  ws: WebSocket;
 }

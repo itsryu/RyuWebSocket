@@ -17,7 +17,7 @@ declare global {
       readonly GUILD_ID: string;
       readonly USER_ID: string;
       readonly STATE: string
-      readonly PORT: number;
+      readonly PORT: string;
     }
   }
 }

@@ -1,5 +1,5 @@
-import { Snowflake } from 'discord-api-types/v10';
-import { DiscordUser, SendRateLimitState } from '../types/discordInterfaces';
+import { RESTPostAPIWebhookWithTokenJSONBody, Snowflake } from 'discord-api-types/v10';
+import { DiscordUser, SendRateLimitState, WebsocketReceivePayload } from '../types/discordInterfaces';
 import { get } from 'https';
 import axios from 'axios';
 import { Logger } from './logger';
@@ -69,6 +69,27 @@ class Util {
             sent: 0,
             resetAt: Date.now() + 60_000
         };
+    }
+
+    static async webhookLog(data: RESTPostAPIWebhookWithTokenJSONBody): Promise<void> {
+        await fetch(process.env.WEBHOOK_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data, null, 2)
+        }).catch((err: unknown) => {
+            Logger.error((err as Error).message, 'GatewayUtils');
+            Logger.warn((err as Error).stack, 'GatewayUtils');
+        });
+    }
+
+    static payloadData(payload: WebsocketReceivePayload) {
+        return JSON.stringify(payload);
+    }
+
+    public static get randomId(): string {
+        return Math.random().toString(36).substring(7);
     }
 }
 
