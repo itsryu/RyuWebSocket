@@ -13,6 +13,7 @@ interface ConnectionInfo {
 }
 
 interface HttpRequestInfo extends ConnectionInfo {
+    route: string;
     browser: string;
     version: string;
     os: string;
@@ -26,7 +27,7 @@ interface WebSocketInfo extends ConnectionInfo {
 }
 
 export class Info {
-    private static extractHttpRequestInfo(req: Request | IncomingMessage): HttpRequestInfo {
+    private static extractHttpRequestInfo(req: Request): HttpRequestInfo {
         try {
             const userAgentString = req.headers['user-agent'] ?? '';
             const referer = req.headers['referer'] ?? req.headers['referrer'];
@@ -34,9 +35,10 @@ export class Info {
             const connection = req.headers['connection'];
             const cookies = this.parseCookies(req.headers['cookie'] ?? '');
             const agent = useragent.parse(userAgentString);
-            const ip = (req as Request).ip ?? req.headers['x-forwarded-for'] ?? req.connection.remoteAddress ?? req.socket.remoteAddress;
+            const ip = req.ip ?? req.headers['x-forwarded-for'] ?? req.connection.remoteAddress ?? req.socket.remoteAddress;
 
             return {
+                route: req.url ?? req.originalUrl,
                 ipAddress: ip,
                 browser: agent.family,
                 version: agent.toVersion(),
@@ -110,9 +112,9 @@ export class Info {
 
     public static getClientInfo(req: Request | IncomingMessage, ws?: WebSocket): ConnectionInfo {
         if (ws) {
-            return this.extractWebSocketInfo(ws, req);
+            return this.extractWebSocketInfo(ws, req as IncomingMessage);
         } else {
-            return this.extractHttpRequestInfo(req);
+            return this.extractHttpRequestInfo(req as Request);
         }
     }
 }
