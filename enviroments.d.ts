@@ -1,5 +1,7 @@
 export { };
 
+declare module 'useragent';
+
 declare global {
   namespace NodeJS {
     interface ProcessEnv {

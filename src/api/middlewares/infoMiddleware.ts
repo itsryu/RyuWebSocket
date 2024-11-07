@@ -1,13 +1,23 @@
 import { NextFunction, Request, Response } from 'express';
-import { RouteStructure } from '../../structures';
+import { EmbedBuilder, RouteStructure } from '../../structures';
 import { Logger } from '../../utils/logger';
+import { Util } from '../../utils/util';
+import { Info } from '../../utils/info';
 
 class InfoMiddleware extends RouteStructure {
-    run = (req: Request, _: Response, next: NextFunction) => {
+    run = async (req: Request, _: Response, next: NextFunction) => {
         try {
-            const ip = req.ip ?? req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? req.connection.remoteAddress;
+            const info = Info.getClientInfo(req);
+            const message = Info.getClientInfoMessage(info);
 
-            Logger.info(`\nRoute: ${req.originalUrl}\nMethod: ${req.method}\nIP: ${ip as string}`, InfoMiddleware.name);
+            const embed = new EmbedBuilder()
+                .setColor(0x1ed760)
+                .setTitle('Info Middleware')
+                .setDescription(message.join('\n'))
+                .setTimestamp(new Date().toISOString());
+
+            Logger.info(message.join('\n'), InfoMiddleware.name);
+            await Util.webhookLog({ embeds: [embed] });
 
             next();
         } catch (err) {
@@ -19,6 +29,6 @@ class InfoMiddleware extends RouteStructure {
     };
 }
 
-export { 
-    InfoMiddleware 
+export {
+    InfoMiddleware
 };

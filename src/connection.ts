@@ -6,6 +6,7 @@ import { EmbedBuilder } from './structures';
 import { Logger } from './utils/logger';
 import { WebsocketOpcodes, WebsocketReceivePayload, WebSocketUser, WebSocketState } from './types';
 import { Gateway } from './gateway';
+import { Info } from './utils/info';
 
 class Connection {
     private server: WebSocketServer;
@@ -31,10 +32,11 @@ class Connection {
             });
     }
 
-    private onConnect(ws: WebSocket, req: IncomingMessage) {
+    private async onConnect(ws: WebSocket, req: IncomingMessage) {
         const id = Util.randomId;
-        const ip = req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
-        const user: WebSocketUser = { id, ip, ws, isAlive: true, pingInterval: null };
+        const info = Info.getClientInfo(req, ws);
+        const message = Info.getClientInfoMessage(info);
+        const user: WebSocketUser = { id, ip: info.ipAddress, ws, isAlive: true, pingInterval: null };
 
         // start the heartbeat
         this.heartbeat(user);
@@ -46,6 +48,13 @@ class Connection {
         this.gateway.addUser(user);
         this.send(user, { op: WebsocketOpcodes.Connected, t: WebSocketState.Connected, d: null });
 
+        const embed = new EmbedBuilder()
+            .setColor(0x1ed760)
+            .setTitle('Websocket Connection')
+            .setDescription(message.join('\n'))
+            .setTimestamp(new Date().toISOString());
+
+        await Util.webhookLog({ embeds: [embed] });
         Logger.info(`[${user.id}] - [${user.ip}]: connection established!`, [Connection.name, this.onConnect.name]);
     }
 
