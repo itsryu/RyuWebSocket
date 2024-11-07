@@ -93,6 +93,7 @@ export class Info {
     public static getClientInfoMessage(info: ConnectionInfo): string[] {
         const message: string[] = [];
 
+        if ('route' in info) message.push(`Route: ${(info as HttpRequestInfo).route}`); 
         if (info.ipAddress) message.push(`IP Address: ${info.ipAddress}`);
         if ('browser' in info) message.push(`Browser: ${(info as HttpRequestInfo).browser}`);
         if ('version' in info) message.push(`Version: ${(info as HttpRequestInfo).version}`);
