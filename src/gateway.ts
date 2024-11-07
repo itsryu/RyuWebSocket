@@ -49,7 +49,7 @@ class Gateway extends EventEmitter {
     }
 
     // just handle with unpacked messages
-    private unpackMessage(data: Data, isBinary: boolean) {
+    private unpackMessage(data: Data, isBinary: boolean): GatewayReceivePayload | null {
         if (!isBinary) {
             try {
                 return JSON.parse(data as string) as GatewayReceivePayload;
@@ -233,190 +233,184 @@ class Gateway extends EventEmitter {
 
         const { op, t, d, s } = payload;
 
-        if (op === GatewayOpcodes.Heartbeat) {
-            await this.heartbeat(s, true);
-        }
+        switch (op) {
+            case GatewayOpcodes.Dispatch: {
+                if (this.#status === WebSocketShardStatus.Resuming) {
+                    this.replayedEvents++;
+                }
 
-        if (op === GatewayOpcodes.HeartbeatAck) {
-            this.isAck = true;
+                switch(t) {
+                    // ready event
+                    case GatewayDispatchEvents.Ready:  {
+                        this.#status = WebSocketShardStatus.Ready;
+        
+                        const { resume_gateway_url, session_id } = d as GatewayReadyDispatchData;
+        
+                        const embed = new EmbedBuilder()
+                            .setColor(0x1ed760)
+                            .setTitle('Gateway Message')
+                            .setDescription('Received ready event, connection established!')
+                            .setTimestamp(new Date().toISOString());
+        
+                        await Util.webhookLog({ embeds: [embed] });
+        
+                        this.resume_url = resume_gateway_url;
+                        this.session = session_id;
+                    }
 
-            const ackAt = Date.now();
-            const latency = ackAt - this.lastHeartbeatAt;
-
-            this.emit(WebSocketShardEvents.HeartbeatComplete, {
-                ackAt,
-                heartbeatAt: this.lastHeartbeatAt,
-                latency: latency
-            });
-
-            Logger.debug(`Heartbeat latency: ${latency}ms`, [Gateway.name, this.onMessage.name]);
-        }
-
-        if (op === GatewayOpcodes.Reconnect) {
-            await this.destroy({
-                reason: 'Told to reconnect by Discord',
-                recover: WebSocketShardDestroyRecovery.Resume
-            });
-        }
-
-        if (op === GatewayOpcodes.Hello) {
-            this.emit(WebSocketShardEvents.Hello);
-            const jitter = Math.random();
-            const firstWait = Math.floor(d.heartbeat_interval * jitter);
-
-            Logger.debug(`Preparing first heartbeat of the connection with a jitter of ${jitter}, waiting ${firstWait}ms`, [Gateway.name, this.onMessage.name]);
-
-            try {
-                const controller = new AbortController();
-                this.initialHeartbeatTimeoutController = controller;
-                await sleep(firstWait, undefined, { signal: controller.signal });
-            } catch {
-                Logger.debug(['Cancelled initial heartbeat due to #destroy being called'], [Gateway.name, this.onMessage.name]);
-                return;
-            } finally {
-                this.initialHeartbeatTimeoutController = null;
+                    // resumed event
+                    case GatewayDispatchEvents.Resumed: {
+                        this.#status = WebSocketShardStatus.Ready;
+        
+                        Logger.debug([`Resumed and replayed ${this.replayedEvents} events`], [Gateway.name, this.onMessage.name]);
+        
+                        const embed = new EmbedBuilder()
+                            .setColor(0x1ed760)
+                            .setTitle('Gateway Message')
+                            .setDescription('Received resumed event, connection resumed!')
+                            .setTimestamp(new Date().toISOString());
+        
+                        await Util.webhookLog({ embeds: [embed] });
+                    }
+    
+                    // message create event
+                    case GatewayDispatchEvents.MessageCreate: {
+                        this.emit(GatewayDispatchEvents.MessageCreate, d as GatewayMessageCreateDispatchData);
+                    }
+    
+                    // guild member chunk event
+                    case GatewayDispatchEvents.GuildMembersChunk: {
+                        const { members, presences, guild_id } = d as GatewayGuildMembersChunkDispatchData;
+        
+                        if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
+                            const data: DiscordUser | undefined = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/' + members[0].user?.id, {
+                                method: 'GET',
+                                headers: {
+                                    'Authorization': 'Bearer ' + process.env.AUTH_KEY
+                                }
+                            })
+                                .then((res) => res.data as DiscordUser)
+                                .catch(() => undefined);
+        
+                            this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
+        
+                            // get track event
+                            if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
+                                const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
+        
+                                if (activity) {
+                                    const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
+        
+                                    if (data && Object.keys(data).length) {
+                                        this.emit(SpotifyEvents.GetTrack, data);
+                                        this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data });
+                                    }
+                                }
+                            }
+        
+                            this.emit(GatewayDispatchEvents.GuildMembersChunk, this.member);
+                            this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: this.member });
+                        };
+                    }
+    
+                    // presence update event
+                    case GatewayDispatchEvents.PresenceUpdate: {
+                        const { user, activities, status, guild_id } = d as GatewayPresenceUpdateDispatchData;
+        
+                        if (Object.keys(d).length && user.id === process.env.USER_ID) {
+                            this.member = { ...this.member, user, activities, status, guild_id };
+        
+                            // get track event
+                            if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
+                                const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
+        
+                                if (activity) {
+                                    const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
+        
+                                    if (data && Object.keys(data).length) {
+                                        this.emit(SpotifyEvents.GetTrack, data);
+                                        this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data });
+                                    }
+                                }
+                            }
+        
+                            this.emit(GatewayDispatchEvents.PresenceUpdate, this.member);
+                            this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: this.member });
+                        }
+                    }
+                }
             }
 
-            await this.heartbeat(s);
+            case GatewayOpcodes.Heartbeat: {
+                await this.heartbeat(s, true);
+            }
 
-            Logger.debug([`First heartbeat sent, starting to beat every ${d.heartbeat_interval}ms`], [Gateway.name, this.onMessage.name]);
-            this.heartbeatInterval = setInterval(() => this.heartbeat(s), d.heartbeat_interval);
-        };
+            case GatewayOpcodes.HeartbeatAck: {
+                this.isAck = true;
+    
+                const ackAt = Date.now();
+                const latency = ackAt - this.lastHeartbeatAt;
+    
+                this.emit(WebSocketShardEvents.HeartbeatComplete, {
+                    ackAt,
+                    heartbeatAt: this.lastHeartbeatAt,
+                    latency: latency
+                });
+    
+                Logger.debug(`Heartbeat latency: ${latency}ms`, [Gateway.name, this.onMessage.name]);
+            }
 
-        if (op === GatewayOpcodes.Reconnect) {
-            const embed = new EmbedBuilder()
-                .setColor(0xffce47)
-                .setTitle('Gateway Message')
-                .setDescription('Received reconnect opcode, reconnecting..')
-                .setTimestamp(new Date().toISOString());
-
-            await Util.webhookLog({ embeds: [embed] });
-            Logger.warn('Received reconnect opcode, reconnecting..', [Gateway.name, this.onMessage.name]);
-            this.socket?.close();
-            await this.establishConnection(token);
-        }
-
-        if (op === GatewayOpcodes.InvalidSession) {
-            const embed = new EmbedBuilder()
-                .setColor(0xffce47)
-                .setTitle('Gateway Message')
-                .setDescription('Received invalid session opcode, reconnecting..')
-                .setTimestamp(new Date().toISOString());
-
-            await Util.webhookLog({ embeds: [embed] });
-
-            this.debug([`Invalid session; will attempt to resume: ${payload.d.toString()}`]);
-            Logger.warn(`Invalid session; will attempt to resume: ${payload.d.toString()}`, [Gateway.name, this.onMessage.name]);
-
-            if (payload.d) {
-                await this.resume(token);
-            } else {
+            case GatewayOpcodes.Reconnect: {
                 await this.destroy({
-                    reason: 'Invalid session',
-                    recover: WebSocketShardDestroyRecovery.Reconnect
+                    reason: 'Told to reconnect by Discord',
+                    recover: WebSocketShardDestroyRecovery.Resume
                 });
             }
-        }
 
-        // handling events:
-        if (op === GatewayOpcodes.Dispatch && t) {
-            if (this.#status === WebSocketShardStatus.Resuming) {
-                this.replayedEvents++;
-            }
+            case GatewayOpcodes.Hello: {
+                this.emit(WebSocketShardEvents.Hello);
+                
+                const jitter = Math.random();
+                const firstWait = Math.floor(d.heartbeat_interval * jitter);
+    
+                Logger.debug(`Preparing first heartbeat of the connection with a jitter of ${jitter}, waiting ${firstWait}ms`, [Gateway.name, this.onMessage.name]);
+    
+                try {
+                    const controller = new AbortController();
+                    this.initialHeartbeatTimeoutController = controller;
+                    await sleep(firstWait, undefined, { signal: controller.signal });
+                } catch {
+                    Logger.debug(['Cancelled initial heartbeat due to #destroy being called'], [Gateway.name, this.onMessage.name]);
+                    return;
+                } finally {
+                    this.initialHeartbeatTimeoutController = null;
+                }
+    
+                await this.heartbeat(s);
+    
+                Logger.debug([`First heartbeat sent, starting to beat every ${d.heartbeat_interval}ms`], [Gateway.name, this.onMessage.name]);
+                this.heartbeatInterval = setInterval(() => this.heartbeat(s), d.heartbeat_interval);
+            };
 
-            if ([GatewayDispatchEvents.Ready].includes(t)) {
-                this.#status = WebSocketShardStatus.Ready;
-
-                const { resume_gateway_url, session_id } = d as GatewayReadyDispatchData;
-
+            case GatewayOpcodes.InvalidSession: {
                 const embed = new EmbedBuilder()
-                    .setColor(0x1ed760)
+                    .setColor(0xffce47)
                     .setTitle('Gateway Message')
-                    .setDescription('Received ready event, connection established!')
+                    .setDescription('Received invalid session opcode, reconnecting..')
                     .setTimestamp(new Date().toISOString());
-
+    
                 await Util.webhookLog({ embeds: [embed] });
-
-                this.resume_url = resume_gateway_url;
-                this.session = session_id;
-            }
-
-            if ([GatewayDispatchEvents.Resumed].includes(t)) {
-                this.#status = WebSocketShardStatus.Ready;
-
-                Logger.debug([`Resumed and replayed ${this.replayedEvents} events`], [Gateway.name, this.onMessage.name]);
-
-                const embed = new EmbedBuilder()
-                    .setColor(0x1ed760)
-                    .setTitle('Gateway Message')
-                    .setDescription('Received resumed event, connection resumed!')
-                    .setTimestamp(new Date().toISOString());
-
-                await Util.webhookLog({ embeds: [embed] });
-            }
-
-            if ([GatewayDispatchEvents.MessageCreate].includes(t)) {
-                this.emit(GatewayDispatchEvents.MessageCreate, d as GatewayMessageCreateDispatchData);
-            }
-
-            // guild member chunk event
-            if ([GatewayDispatchEvents.GuildMembersChunk].includes(t)) {
-                const { members, presences, guild_id } = d as GatewayGuildMembersChunkDispatchData;
-
-                if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
-                    const data: DiscordUser | undefined = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/' + members[0].user?.id, {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': 'Bearer ' + process.env.AUTH_KEY
-                        }
-                    })
-                        .then((res) => res.data as DiscordUser)
-                        .catch(() => undefined);
-
-                    this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
-
-                    // get track event
-                    if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
-                        const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
-
-                        if (activity) {
-                            const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
-
-                            if (data && Object.keys(data).length) {
-                                this.emit(SpotifyEvents.GetTrack, data);
-                                this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data });
-                            }
-                        }
-                    }
-
-                    this.emit(GatewayDispatchEvents.GuildMembersChunk, this.member);
-                    this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: this.member });
-                };
-            }
-
-            // presence update event
-            if ([GatewayDispatchEvents.PresenceUpdate].includes(t)) {
-                const { user, activities, status, guild_id } = d as GatewayPresenceUpdateDispatchData;
-
-                if (Object.keys(d).length && user.id === process.env.USER_ID) {
-                    this.member = { ...this.member, user, activities, status, guild_id };
-
-                    // get track event
-                    if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
-                        const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
-
-                        if (activity) {
-                            const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
-
-                            if (data && Object.keys(data).length) {
-                                this.emit(SpotifyEvents.GetTrack, data);
-                                this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data });
-                            }
-                        }
-                    }
-
-                    this.emit(GatewayDispatchEvents.PresenceUpdate, this.member);
-                    this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: this.member });
+    
+                this.debug([`Invalid session; will attempt to resume: ${payload.d.toString()}`]);
+                Logger.warn(`Invalid session; will attempt to resume: ${payload.d.toString()}`, [Gateway.name, this.onMessage.name]);
+    
+                if (payload.d) {
+                    await this.resume(token);
+                } else {
+                    await this.destroy({
+                        reason: 'Invalid session',
+                        recover: WebSocketShardDestroyRecovery.Reconnect
+                    });
                 }
             }
         }
