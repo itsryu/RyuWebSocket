@@ -1,4 +1,4 @@
-import { GatewayIntentBits, GatewayOpcodes, GatewayRequestGuildMembersDataWithUserIds } from 'discord-api-types/v10';
+import { GatewayOpcodes, GatewayRequestGuildMembersDataWithUserIds } from 'discord-api-types/v10';
 import { IncomingMessage } from 'http';
 import { RawData, WebSocket, WebSocketServer } from 'ws';
 import { Util } from './utils/util';
@@ -13,23 +13,10 @@ class Connection {
     private gateway: Gateway;
     private static pingInterval: number = 41250;
 
-    constructor(server: WebSocketServer) {
+    constructor(server: WebSocketServer, gateway: Gateway) {
         this.server = server;
         this.server.on('connection', this.onConnect.bind(this));
-
-        this.gateway = new Gateway({
-            intents: [
-                GatewayIntentBits.Guilds,
-                GatewayIntentBits.GuildPresences,
-                GatewayIntentBits.GuildMessages,
-                GatewayIntentBits.MessageContent
-            ]
-        });
-
-        this.gateway.login(process.env.CLIENT_TOKEN)
-            .catch(() => {
-                Logger.error('Failed to login to gateway. Please check your CLIENT_TOKEN and network connection.', [Connection.name, this.constructor.name]);
-            });
+        this.gateway = gateway;
     }
 
     private async onConnect(ws: WebSocket, req: IncomingMessage) {

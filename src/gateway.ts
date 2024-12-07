@@ -1,6 +1,6 @@
 import WebSocket, { type Data } from 'ws';
 import { ClientOptions, CloseCodes, DiscordUser, ImportantGatewayOpcodes, MemberPresence, SendRateLimitState, WebsocketReceivePayload, WebSocketShardDestroyOptions, WebSocketShardDestroyRecovery, WebSocketShardEvents, WebSocketShardStatus, WebSocketUser } from './types';
-import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewaySendPayload, GatewayPresenceUpdateDispatchData, GatewayGuildMembersChunkDispatchData, GatewayReadyDispatchData, GatewayMessageCreateDispatchData, GatewayCloseCodes } from 'discord-api-types/v10';
+import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewaySendPayload, GatewayCloseCodes } from 'discord-api-types/v10';
 import EventEmitter from 'node:events';
 import { EmbedBuilder } from './structures';
 import axios from 'axios';
@@ -30,7 +30,7 @@ class Gateway extends EventEmitter {
     private failedToConnectDueToNetworkError = false;
     private users: WebSocketUser[] = [];
 
-    public constructor(options: ClientOptions) {
+    constructor(options: ClientOptions) {
         super({ captureRejections: true });
 
         this.options = options;
@@ -244,7 +244,7 @@ class Gateway extends EventEmitter {
                     case GatewayDispatchEvents.Ready:  {
                         this.#status = WebSocketShardStatus.Ready;
         
-                        const { resume_gateway_url, session_id } = d as GatewayReadyDispatchData;
+                        const { resume_gateway_url, session_id } = d;
         
                         const embed = new EmbedBuilder()
                             .setColor(0x1ed760)
@@ -256,6 +256,8 @@ class Gateway extends EventEmitter {
         
                         this.resume_url = resume_gateway_url;
                         this.session = session_id;
+
+                        break;
                     }
 
                     // resumed event
@@ -271,16 +273,20 @@ class Gateway extends EventEmitter {
                             .setTimestamp(new Date().toISOString());
         
                         await Util.webhookLog({ embeds: [embed] });
+
+                        break;
                     }
     
                     // message create event
                     case GatewayDispatchEvents.MessageCreate: {
-                        this.emit(GatewayDispatchEvents.MessageCreate, d as GatewayMessageCreateDispatchData);
+                        this.emit(GatewayDispatchEvents.MessageCreate, d);
+
+                        break;
                     }
     
                     // guild member chunk event
                     case GatewayDispatchEvents.GuildMembersChunk: {
-                        const { members, presences, guild_id } = d as GatewayGuildMembersChunkDispatchData;
+                        const { members, presences, guild_id } = d;
         
                         if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
                             const data: DiscordUser | undefined = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/' + members[0].user?.id, {
@@ -311,11 +317,13 @@ class Gateway extends EventEmitter {
                             this.emit(GatewayDispatchEvents.GuildMembersChunk, this.member);
                             this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: this.member });
                         };
+
+                        break;
                     }
     
                     // presence update event
                     case GatewayDispatchEvents.PresenceUpdate: {
-                        const { user, activities, status, guild_id } = d as GatewayPresenceUpdateDispatchData;
+                        const { user, activities, status, guild_id } = d;
         
                         if (Object.keys(d).length && user.id === process.env.USER_ID) {
                             this.member = { ...this.member, user, activities, status, guild_id };
@@ -337,12 +345,18 @@ class Gateway extends EventEmitter {
                             this.emit(GatewayDispatchEvents.PresenceUpdate, this.member);
                             this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: this.member });
                         }
+
+                        break;
                     }
                 }
+
+                break;
             }
 
             case GatewayOpcodes.Heartbeat: {
                 await this.heartbeat(s, true);
+
+                break;
             }
 
             case GatewayOpcodes.HeartbeatAck: {
@@ -358,6 +372,8 @@ class Gateway extends EventEmitter {
                 });
     
                 Logger.debug(`Heartbeat latency: ${latency}ms`, [Gateway.name, this.onMessage.name]);
+
+                break;
             }
 
             case GatewayOpcodes.Reconnect: {
@@ -365,6 +381,8 @@ class Gateway extends EventEmitter {
                     reason: 'Told to reconnect by Discord',
                     recover: WebSocketShardDestroyRecovery.Resume
                 });
+
+                break;
             }
 
             case GatewayOpcodes.Hello: {
@@ -390,6 +408,8 @@ class Gateway extends EventEmitter {
     
                 Logger.debug([`First heartbeat sent, starting to beat every ${d.heartbeat_interval}ms`], [Gateway.name, this.onMessage.name]);
                 this.heartbeatInterval = setInterval(() => this.heartbeat(s), d.heartbeat_interval);
+
+                break;
             };
 
             case GatewayOpcodes.InvalidSession: {
@@ -412,6 +432,8 @@ class Gateway extends EventEmitter {
                         recover: WebSocketShardDestroyRecovery.Reconnect
                     });
                 }
+
+                break;
             }
         }
 
