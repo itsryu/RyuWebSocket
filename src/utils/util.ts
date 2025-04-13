@@ -8,6 +8,34 @@ class Util {
     public static async getDiscordUser(id: Snowflake): Promise<DiscordUser | null> {
         const fetchUser = async (resolve: (V: DiscordUser | null) => void) => {
             try {
+                const data: DiscordUser | undefined = await axios.get(`https://discord.com/api/v10/users/${id}`, {
+                    method: 'GET',
+                    headers: {
+                        Authorization: 'Bot ' + process.env.CLIENT_TOKEN
+                    }
+                })
+                    .then((res) => res.data as DiscordUser)
+                    .catch(() => undefined);
+
+                if (data) {
+                    resolve(data);
+                } else {
+                    resolve(null);
+                }
+            } catch (err) {
+                Logger.error((err as Error).message, [Util.name, Util.getDiscordUser.name]);
+                Logger.warn((err as Error).stack, [Util.name, Util.getDiscordUser.name]);
+
+                resolve(null);
+            }
+        };
+
+        return await new Promise<DiscordUser | null>(fetchUser);
+    }
+    
+    public static async getDiscordUserProfile(id: Snowflake): Promise<DiscordUser | null> {
+        const fetchUser = async (resolve: (V: DiscordUser | null) => void) => {
+            try {
                 const data: DiscordUser | undefined = await axios.get(`https://discord.com/api/v10/users/${id}/profile`, {
                     method: 'GET',
                     headers: {
@@ -23,8 +51,8 @@ class Util {
                     resolve(null);
                 }
             } catch (err) {
-                Logger.error((err as Error).message, [Util.name, Util.getDiscordUser.name]);
-                Logger.warn((err as Error).stack, [Util.name, Util.getDiscordUser.name]);
+                Logger.error((err as Error).message, [Util.name, Util.getDiscordUserProfile.name]);
+                Logger.warn((err as Error).stack, [Util.name, Util.getDiscordUserProfile.name]);
 
                 resolve(null);
             }

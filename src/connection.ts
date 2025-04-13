@@ -45,20 +45,6 @@ class Connection {
         Logger.info(`[${user.id}] - [${user.ip}]: connection established!`, [Connection.name, this.onConnect.name]);
     }
 
-    private async handleRequestGuildMembers(data: GatewayRequestGuildMembersDataWithUserIds) {
-        const { user_ids } = data;
-
-        await this.gateway.send({
-            op: GatewayOpcodes.RequestGuildMembers,
-            d: {
-                guild_id: process.env.GUILD_ID,
-                user_ids: user_ids,
-                presences: true,
-                limit: 0
-            }
-        });
-    }
-
     private async onMessage(user: WebSocketUser, data: RawData) {
         const buffer = Buffer.isBuffer(data) ? data : Buffer.from(typeof data === 'string' ? data : JSON.stringify(data), 'hex');
         const str = buffer.toString('utf8');
@@ -84,6 +70,8 @@ class Connection {
 
             // op: 8
             case GatewayOpcodes.RequestGuildMembers: {
+                user.id = (d as GatewayRequestGuildMembersDataWithUserIds).user_ids as string;
+                
                 await this.handleRequestGuildMembers(d as GatewayRequestGuildMembersDataWithUserIds);
 
                 const embed = new EmbedBuilder()
@@ -112,6 +100,20 @@ class Connection {
     private onError(user: WebSocketUser, error: Error) {
         Logger.error(`[${user.id}] - [${user.ip}]: connection error: ${error.message}`, [Connection.name, this.onError.name]);
         this.destroy(user);
+    }
+
+    private async handleRequestGuildMembers(data: GatewayRequestGuildMembersDataWithUserIds) {
+        const { user_ids } = data;
+
+        await this.gateway.send({
+            op: GatewayOpcodes.RequestGuildMembers,
+            d: {
+                guild_id: process.env.GUILD_ID,
+                user_ids: user_ids,
+                presences: true,
+                limit: 0
+            }
+        });
     }
 
     private clearPingInterval(user: WebSocketUser) {

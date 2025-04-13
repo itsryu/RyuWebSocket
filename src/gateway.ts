@@ -29,11 +29,13 @@ class Gateway extends EventEmitter {
     private sendRateLimitState: SendRateLimitState = Util.getInitialSendRateLimitState();
     private failedToConnectDueToNetworkError = false;
     private users: WebSocketUser[] = [];
+    private gatewayGuildMemberData: Map<string, string>;
 
-    constructor(options: ClientOptions) {
+    constructor(options: ClientOptions, gatewayGuildMemberData: Map<string, string>) {
         super({ captureRejections: true });
 
         this.options = options;
+        this.gatewayGuildMemberData = gatewayGuildMemberData;
     }
 
     public get status(): WebSocketShardStatus {
@@ -48,7 +50,7 @@ class Gateway extends EventEmitter {
         this.#token = token;
     }
 
-    // just handle with unpacked messages
+    // just handle with unpacked messages (not working at all)
     private unpackMessage(data: Data, isBinary: boolean): GatewayReceivePayload | null {
         if (!isBinary) {
             try {
@@ -239,21 +241,21 @@ class Gateway extends EventEmitter {
                     this.replayedEvents++;
                 }
 
-                switch(t) {
+                switch (t) {
                     // ready event
-                    case GatewayDispatchEvents.Ready:  {
+                    case GatewayDispatchEvents.Ready: {
                         this.#status = WebSocketShardStatus.Ready;
-        
+
                         const { resume_gateway_url, session_id } = d;
-        
+
                         const embed = new EmbedBuilder()
                             .setColor(0x1ed760)
                             .setTitle('Gateway Message')
                             .setDescription('Received ready event, connection established!')
                             .setTimestamp(new Date().toISOString());
-        
+
                         await Util.webhookLog({ embeds: [embed] });
-        
+
                         this.resume_url = resume_gateway_url;
                         this.session = session_id;
 
@@ -263,33 +265,33 @@ class Gateway extends EventEmitter {
                     // resumed event
                     case GatewayDispatchEvents.Resumed: {
                         this.#status = WebSocketShardStatus.Ready;
-        
+
                         Logger.debug([`Resumed and replayed ${this.replayedEvents} events`], [Gateway.name, this.onMessage.name]);
-        
+
                         const embed = new EmbedBuilder()
                             .setColor(0x1ed760)
                             .setTitle('Gateway Message')
                             .setDescription('Received resumed event, connection resumed!')
                             .setTimestamp(new Date().toISOString());
-        
+
                         await Util.webhookLog({ embeds: [embed] });
 
                         break;
                     }
-    
+
                     // message create event
                     case GatewayDispatchEvents.MessageCreate: {
                         this.emit(GatewayDispatchEvents.MessageCreate, d);
 
                         break;
                     }
-    
+
                     // guild member chunk event
                     case GatewayDispatchEvents.GuildMembersChunk: {
                         const { members, presences, guild_id } = d;
-        
+
                         if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
-                            const data: DiscordUser | undefined = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/' + members[0].user?.id, {
+                            const data: DiscordUser | undefined = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/profile' + members[0].user?.id, {
                                 method: 'GET',
                                 headers: {
                                     'Authorization': 'Bearer ' + process.env.AUTH_KEY
@@ -297,51 +299,51 @@ class Gateway extends EventEmitter {
                             })
                                 .then((res) => res.data as DiscordUser)
                                 .catch(() => undefined);
-        
+
                             this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
-        
+
                             // get track event
                             if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
                                 const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
-        
+
                                 if (activity) {
                                     const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
-        
+
                                     if (data && Object.keys(data).length) {
                                         this.emit(SpotifyEvents.GetTrack, data);
                                         this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data });
                                     }
                                 }
                             }
-        
+
                             this.emit(GatewayDispatchEvents.GuildMembersChunk, this.member);
                             this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: this.member });
                         };
 
                         break;
                     }
-    
+
                     // presence update event
                     case GatewayDispatchEvents.PresenceUpdate: {
                         const { user, activities, status, guild_id } = d;
-        
+
                         if (Object.keys(d).length && user.id === process.env.USER_ID) {
                             this.member = { ...this.member, user, activities, status, guild_id };
-        
+
                             // get track event
                             if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
                                 const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
-        
+
                                 if (activity) {
                                     const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
-        
+
                                     if (data && Object.keys(data).length) {
                                         this.emit(SpotifyEvents.GetTrack, data);
                                         this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data });
                                     }
                                 }
                             }
-        
+
                             this.emit(GatewayDispatchEvents.PresenceUpdate, this.member);
                             this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: this.member });
                         }
@@ -361,16 +363,16 @@ class Gateway extends EventEmitter {
 
             case GatewayOpcodes.HeartbeatAck: {
                 this.isAck = true;
-    
+
                 const ackAt = Date.now();
                 const latency = ackAt - this.lastHeartbeatAt;
-    
+
                 this.emit(WebSocketShardEvents.HeartbeatComplete, {
                     ackAt,
                     heartbeatAt: this.lastHeartbeatAt,
                     latency: latency
                 });
-    
+
                 Logger.debug(`Heartbeat latency: ${latency}ms`, [Gateway.name, this.onMessage.name]);
 
                 break;
@@ -387,12 +389,12 @@ class Gateway extends EventEmitter {
 
             case GatewayOpcodes.Hello: {
                 this.emit(WebSocketShardEvents.Hello);
-                
+
                 const jitter = Math.random();
                 const firstWait = Math.floor(d.heartbeat_interval * jitter);
-    
+
                 Logger.debug(`Preparing first heartbeat of the connection with a jitter of ${jitter}, waiting ${firstWait}ms`, [Gateway.name, this.onMessage.name]);
-    
+
                 try {
                     const controller = new AbortController();
                     this.initialHeartbeatTimeoutController = controller;
@@ -403,9 +405,9 @@ class Gateway extends EventEmitter {
                 } finally {
                     this.initialHeartbeatTimeoutController = null;
                 }
-    
+
                 await this.heartbeat(s);
-    
+
                 Logger.debug([`First heartbeat sent, starting to beat every ${d.heartbeat_interval}ms`], [Gateway.name, this.onMessage.name]);
                 this.heartbeatInterval = setInterval(() => this.heartbeat(s), d.heartbeat_interval);
 
@@ -418,12 +420,12 @@ class Gateway extends EventEmitter {
                     .setTitle('Gateway Message')
                     .setDescription('Received invalid session opcode, reconnecting..')
                     .setTimestamp(new Date().toISOString());
-    
+
                 await Util.webhookLog({ embeds: [embed] });
-    
+
                 this.debug([`Invalid session; will attempt to resume: ${payload.d.toString()}`]);
                 Logger.warn(`Invalid session; will attempt to resume: ${payload.d.toString()}`, [Gateway.name, this.onMessage.name]);
-    
+
                 if (payload.d) {
                     await this.resume(token);
                 } else {
@@ -708,6 +710,8 @@ class Gateway extends EventEmitter {
             if (user.ws.readyState === WebSocket.OPEN) {
                 try {
                     user.ws.send(data);
+                    this.gatewayGuildMemberData.set(user.id, data);
+                    Logger.info(`[${user.id}] - [${user.ip}]: sent data`, [Gateway.name, this.sendUserGatewayEvents.name]);
                 } catch (error) {
                     Logger.error(`Failed to send data to user ${user.id}: ${(error as Error).message}`, [Gateway.name, this.sendUserGatewayEvents.name]);
                 }
@@ -718,4 +722,6 @@ class Gateway extends EventEmitter {
     }
 }
 
-export { Gateway };
+export {
+    Gateway
+};

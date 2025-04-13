@@ -5,4 +5,6 @@ config({ path: './.env' });
 
 const server = new Server();
 
-server.listen();
+(() => {
+    server.listen();
+})();

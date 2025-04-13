@@ -39,7 +39,7 @@ class Logger {
             winston.format.splat(),
             winston.format.json(),
             winston.format.colorize({
-                all: true    
+                all: true
             }),
             winston.format.align(),
             winston.format.printf((info) => {

@@ -9,7 +9,7 @@ interface ConnectionInfo {
     referer: string | string[] | undefined;
     host: string | undefined;
     connection: string | undefined;
-    cookies: { [key: string]: string };
+    cookies: Record<string, string>;
 }
 
 interface HttpRequestInfo extends ConnectionInfo {
@@ -30,10 +30,10 @@ export class Info {
     private static extractHttpRequestInfo(req: Request): HttpRequestInfo {
         try {
             const userAgentString = req.headers['user-agent'] ?? '';
-            const referer = req.headers['referer'] ?? req.headers['referrer'];
-            const host = req.headers['host'];
-            const connection = req.headers['connection'];
-            const cookies = this.parseCookies(req.headers['cookie'] ?? '');
+            const referer = req.headers.referer ?? req.headers.referrer;
+            const host = req.headers.host;
+            const connection = req.headers.connection;
+            const cookies = this.parseCookies(req.headers.cookie ?? '');
             const agent = useragent.parse(userAgentString);
             const ip = req.ip ?? req.headers['x-forwarded-for'] ?? req.connection.remoteAddress ?? req.socket.remoteAddress;
 
@@ -60,10 +60,10 @@ export class Info {
     private static extractWebSocketInfo(ws: WebSocket, req: IncomingMessage): WebSocketInfo {
         try {
             const userAgentString = req.headers['user-agent'] ?? '';
-            const referer = req.headers['referer'] ?? req.headers['referrer'];
-            const host = req.headers['host'];
-            const connection = req.headers['connection'];
-            const cookies = this.parseCookies(req.headers['cookie'] ?? '');
+            const referer = req.headers.referer ?? req.headers.referrer;
+            const host = req.headers.host;
+            const connection = req.headers.connection;
+            const cookies = this.parseCookies(req.headers.cookie ?? '');
             const ip = req.headers['x-forwarded-for'] ?? req.connection.remoteAddress ?? req.socket.remoteAddress;
 
             return {
@@ -74,7 +74,7 @@ export class Info {
                 connection: connection,
                 cookies: cookies,
                 protocol: ws.protocol,
-                origin: req.headers['origin']
+                origin: req.headers.origin
             };
         } catch (error) {
             console.error('Error extracting WebSocket info:', error);
@@ -82,18 +82,18 @@ export class Info {
         }
     }
 
-    private static parseCookies(cookieHeader: string): { [key: string]: string } {
-        return cookieHeader.split(';').reduce((cookies, cookie) => {
+    private static parseCookies(cookieHeader: string): Record<string, string> {
+        return cookieHeader.split(';').reduce<Record<string, string>>((cookies, cookie) => {
             const [name, value] = cookie.split('=').map(c => c.trim());
             cookies[name] = value;
             return cookies;
-        }, {} as { [key: string]: string });
+        }, {});
     }
 
     public static getClientInfoMessage(info: ConnectionInfo): string[] {
         const message: string[] = [];
 
-        if ('route' in info) message.push(`Route: ${(info as HttpRequestInfo).route}`); 
+        if ('route' in info) message.push(`Route: ${(info as HttpRequestInfo).route}`);
         if (info.ipAddress) message.push(`IP Address: ${info.ipAddress}`);
         if ('browser' in info) message.push(`Browser: ${(info as HttpRequestInfo).browser}`);
         if ('version' in info) message.push(`Version: ${(info as HttpRequestInfo).version}`);
