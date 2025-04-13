@@ -1,24 +1,38 @@
-app = "seu-app-fly"
+app = "ryuwebsocket"
+
+kill_signal = "SIGINT"
+kill_timeout = 5
+
+[build]
+  builder = "heroku/buildpacks:20"
+  # OU configuração manual para TypeScript:
+  # [build]
+  #  image = "node:20-alpine"
+  #  command = "npm run build && npm start"
 
 [[services]]
   http_checks = []
   internal_port = 3000
-  protocol = "tcp"
-  script_checks = []
+  protocol = "tcp"      # WebSocket requer TCP
+  processes = ["app"]   # Garante que apenas 1 processo rode o WebSocket
 
   [services.concurrency]
-    hard_limit = 25
-    soft_limit = 20
+    hard_limit = 50     # Aumente para conexões WebSocket simultâneas
+    soft_limit = 40
 
   [[services.ports]]
     handlers = ["http"]
-    port = 80
+    port = 80           # HTTP padrão (redireciona para HTTPS)
 
   [[services.ports]]
     handlers = ["tls", "http"]
-    port = 443
+    port = 443          # HTTPS/WSS obrigatório para WebSocket em produção
 
   [[services.tcp_checks]]
     interval = 10000
     timeout = 2000
     grace_period = "5s"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8080"
