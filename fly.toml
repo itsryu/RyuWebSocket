@@ -4,11 +4,10 @@ kill_signal = "SIGINT"
 kill_timeout = 5
 
 [build]
-  builder = "heroku/buildpacks:20"
-  # OU configuração manual para TypeScript:
-  # [build]
-  #  image = "node:20-alpine"
-  #  command = "npm run build && npm start"
+  builder = "heroku/builder:22"
+  buildpacks = [
+    "heroku/nodejs"
+  ]
 
 [[services]]
   http_checks = []
