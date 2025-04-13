@@ -1,57 +1,52 @@
 import { createServer, Server } from 'http';
 import express, { Express } from 'express';
 import { WebSocketServer } from 'ws';
-import { GatewayDispatchEvents, GatewayIntentBits, GatewayMessageCreateDispatchData } from 'discord-api-types/v10';
-import { Gateway } from './gateway';
-import { Base } from './base';
-import { inspect } from 'node:util';
 import { Logger } from './utils/logger';
+import { Connection } from './connection';
+import { Gateway } from './gateway';
+import { GatewayIntentBits } from 'discord-api-types/v10';
 
-class Client extends Base {
-    private port: number = process.env.PORT;
+class Client {
+    private port: string = process.env.PORT;
     public app: Express = express();
-    public server!: Server;
-    public wss!: WebSocketServer;
+    public server: Server;
+    public wss: WebSocketServer;
+    public connection: Connection | null = null;
+    public gateway: Gateway | null = null;
+    public gatewayGuildMemberData: Map<string, string> = new Map<string, string>();
 
     protected constructor() {
-        super();
+        this.server = createServer(this.app);
+        this.wss = new WebSocketServer({ server: this.server });
 
         process.on('uncaughtException', (err: Error) => { Logger.error(err.stack, 'uncaughtException'); });
         process.on('unhandledRejection', (err: Error) => { Logger.error(err.stack, 'unhandledRejection'); });
     }
 
-    public async listen() {
-        this.server = createServer(this.app);
-        this.wss = new WebSocketServer({ server: this.server });
+    public listen() {
+        this.server.listen(this.port, () => {
+            Logger.info(`Server is running at ${process.env.STATE == 'development' ? `${process.env.LOCAL_URL}:${this.port}/` : process.env.DOMAIN_URL}`, 'Server');
+        });
 
-        const gateway = new Gateway({
+        this.gateway = new Gateway({
             intents: [
                 GatewayIntentBits.Guilds,
                 GatewayIntentBits.GuildPresences,
                 GatewayIntentBits.GuildMessages,
                 GatewayIntentBits.MessageContent
             ]
-        }, this.wss);
+        }, this.gatewayGuildMemberData);
 
-        gateway.event.on(GatewayDispatchEvents.MessageCreate, async (message: GatewayMessageCreateDispatchData) => {
-            const { content, author } = message;
-            const prefix = 'm.';
-            const [...args] = content.slice(prefix.length).trim().split(/ +/g);
+        this.gateway.login(process.env.CLIENT_TOKEN)
+            .catch(() => {
+                Logger.error('Failed to login to gateway. Please check your CLIENT_TOKEN and network connection.', [Connection.name, this.constructor.name]);
+            });
 
-            if (author.id === process.env.USER_ID && args[0] === 'eval') {
-                const res = args.slice(1).join(' ');
-                const result: unknown = await Promise.any([eval(res), Promise.reject(new Error('Nenhum resultado retornado.'))]);
-                const evaled = inspect(result);
-
-                Logger.debug(evaled, 'Eval');
-            }
-        });
-
-        await gateway.login(process.env.CLIENT_TOKEN);
-
-        this.server.listen(this.port, () => {
-            Logger.info(`Server is running at ${process.env.STATE == 'development' ? `${process.env.LOCAL_URL}:${this.port}/` : process.env.DOMAIN_URL}`, 'Server');
-        });
+        if (this.gateway) {
+            this.connection = new Connection(this.wss, this.gateway);
+        } else {
+            Logger.error('Failed to initialize connection. Please check your gateway instance.', [Connection.name, this.constructor.name]);
+        }
     }
 }
 

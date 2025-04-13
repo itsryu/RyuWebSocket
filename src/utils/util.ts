@@ -1,11 +1,39 @@
-import { Snowflake } from 'discord-api-types/v10';
-import { DiscordUser } from '../types/discordInterfaces';
+import { RESTPostAPIWebhookWithTokenJSONBody, Snowflake } from 'discord-api-types/v10';
+import { DiscordUser, SendRateLimitState, WebsocketReceivePayload } from '../types/discordInterfaces';
 import { get } from 'https';
 import axios from 'axios';
 import { Logger } from './logger';
 
 class Util {
     public static async getDiscordUser(id: Snowflake): Promise<DiscordUser | null> {
+        const fetchUser = async (resolve: (V: DiscordUser | null) => void) => {
+            try {
+                const data: DiscordUser | undefined = await axios.get(`https://discord.com/api/v10/users/${id}`, {
+                    method: 'GET',
+                    headers: {
+                        Authorization: 'Bot ' + process.env.CLIENT_TOKEN
+                    }
+                })
+                    .then((res) => res.data as DiscordUser)
+                    .catch(() => undefined);
+
+                if (data) {
+                    resolve(data);
+                } else {
+                    resolve(null);
+                }
+            } catch (err) {
+                Logger.error((err as Error).message, [Util.name, Util.getDiscordUser.name]);
+                Logger.warn((err as Error).stack, [Util.name, Util.getDiscordUser.name]);
+
+                resolve(null);
+            }
+        };
+
+        return await new Promise<DiscordUser | null>(fetchUser);
+    }
+    
+    public static async getDiscordUserProfile(id: Snowflake): Promise<DiscordUser | null> {
         const fetchUser = async (resolve: (V: DiscordUser | null) => void) => {
             try {
                 const data: DiscordUser | undefined = await axios.get(`https://discord.com/api/v10/users/${id}/profile`, {
@@ -23,8 +51,8 @@ class Util {
                     resolve(null);
                 }
             } catch (err) {
-                Logger.error((err as Error).message, [Util.name, Util.getDiscordUser.name]);
-                Logger.warn((err as Error).stack, [Util.name, Util.getDiscordUser.name]);
+                Logger.error((err as Error).message, [Util.name, Util.getDiscordUserProfile.name]);
+                Logger.warn((err as Error).stack, [Util.name, Util.getDiscordUserProfile.name]);
 
                 resolve(null);
             }
@@ -62,6 +90,34 @@ class Util {
 
             return '';
         }
+    }
+
+    static getInitialSendRateLimitState(): SendRateLimitState {
+        return {
+            sent: 0,
+            resetAt: Date.now() + 60_000
+        };
+    }
+
+    static async webhookLog(data: RESTPostAPIWebhookWithTokenJSONBody): Promise<void> {
+        await fetch(process.env.WEBHOOK_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data, null, 2)
+        }).catch((err: unknown) => {
+            Logger.error((err as Error).message, 'GatewayUtils');
+            Logger.warn((err as Error).stack, 'GatewayUtils');
+        });
+    }
+
+    static payloadData(payload: WebsocketReceivePayload) {
+        return JSON.stringify(payload);
+    }
+
+    public static get randomId(): string {
+        return Math.random().toString(36).substring(7);
     }
 }
 

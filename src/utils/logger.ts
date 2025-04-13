@@ -3,21 +3,31 @@ import { config } from 'dotenv';
 
 config();
 
+enum LogLevel {
+    ERROR,
+    WARN,
+    INFO,
+    HTTP,
+    VERBOSE,
+    DEBUG,
+    SILLY
+}
+
 class Logger {
     private static environment: string = process.env.STATE ?? 'development';
 
     private static readonly levels: winston.config.AbstractConfigSetLevels = {
-        error: 0,
-        warn: 1,
-        info: 2,
-        http: 3,
-        verbose: 4,
-        debug: 5,
-        silly: 6
+        error: LogLevel.ERROR,
+        warn: LogLevel.WARN,
+        info: LogLevel.INFO,
+        http: LogLevel.HTTP,
+        verbose: LogLevel.VERBOSE,
+        debug: LogLevel.DEBUG,
+        silly: LogLevel.SILLY
     };
 
     private static readonly logger: winston.Logger = winston.createLogger({
-        level: 'info',
+        level: 'debug',
         levels: Logger.levels,
         defaultMeta: { environment: Logger.environment },
         transports: [
@@ -29,13 +39,9 @@ class Logger {
             winston.format.splat(),
             winston.format.json(),
             winston.format.colorize({
-                colors: {
-                    error: 'red',
-                    warn: 'yellow',
-                    info: 'green',
-                    debug: 'blue'
-                }
+                all: true
             }),
+            winston.format.align(),
             winston.format.printf((info) => {
                 const timestamp = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
                 return `[${timestamp}] [${info.level}] [${info.environment}] [${info.path}] ${info.message}`;

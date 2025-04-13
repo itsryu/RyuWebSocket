@@ -24,7 +24,7 @@ class AuthMiddleware extends RouteStructure {
                 Logger.warn(`Invalid authorization key used: ${token}`, AuthMiddleware.name);
                 return void res.status(401).json(new JSONResponse(401, 'Unauthorized').toJSON());
             } else {
-                Logger.info('Valid authorization key used: ******************', AuthMiddleware.name);
+                Logger.info(`Valid authorization key used: ${'*'.repeat(token.length)}`, AuthMiddleware.name);
                 next();
             }
         } catch (err) {

@@ -1,31 +1,66 @@
-import WebSocket from 'ws';
-import { ClientOptions, DiscordUser, MemberPresence } from './types';
-import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewaySendPayload, GatewayRequestGuildMembersDataWithUserIds, RESTPostAPIWebhookWithTokenJSONBody, GatewayPresenceUpdateDispatchData, GatewayGuildMembersChunkDispatchData, GatewayReadyDispatchData, GatewayDispatchPayload, GatewayMessageCreateDispatchData } from 'discord-api-types/v10';
+import WebSocket, { type Data } from 'ws';
+import { ClientOptions, CloseCodes, DiscordUser, ImportantGatewayOpcodes, MemberPresence, SendRateLimitState, WebsocketReceivePayload, WebSocketShardDestroyOptions, WebSocketShardDestroyRecovery, WebSocketShardEvents, WebSocketShardStatus, WebSocketUser } from './types';
+import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewaySendPayload, GatewayCloseCodes } from 'discord-api-types/v10';
 import EventEmitter from 'node:events';
-import { IncomingMessage } from 'node:http';
 import { EmbedBuilder } from './structures';
 import axios from 'axios';
-import { SpotifyEvents, SpotifyTrackResponse } from './types';
-import { Base } from './base';
+import { SpotifyEvents } from './types';
 import { SpotifyGetTrackController } from './api/routes';
 import { Logger } from './utils/logger';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { Util } from './utils/util';
 
-class Gateway extends Base {
-    private wss!: WebSocket.Server;
-    private socket!: WebSocket | null;
-    public event: EventEmitter = new EventEmitter();
+class Gateway extends EventEmitter {
+    #token!: Snowflake;
+    #status: WebSocketShardStatus = WebSocketShardStatus.Idle;
+    private socket: WebSocket | null = null;
     private readonly options: ClientOptions;
     private member!: MemberPresence;
     public connections = new Map<string, WebSocket>();
     private resume_url?: string;
     private session?: string;
     private sequence?: number | null;
+    private lastHeartbeatAt: number = -1;
+    private isAck = true;
+    private replayedEvents = 0;
+    private initialHeartbeatTimeoutController: AbortController | null = null;
+    private readonly timeoutAbortControllers = new Map<WebSocketShardEvents, AbortController>();
+    private heartbeatInterval: NodeJS.Timeout | null = null;
+    private sendRateLimitState: SendRateLimitState = Util.getInitialSendRateLimitState();
+    private failedToConnectDueToNetworkError = false;
+    private users: WebSocketUser[] = [];
+    private gatewayGuildMemberData: Map<string, string>;
 
-    public constructor(options: ClientOptions, websocketServer: WebSocket.Server) {
-        super();
+    constructor(options: ClientOptions, gatewayGuildMemberData: Map<string, string>) {
+        super({ captureRejections: true });
 
         this.options = options;
-        this.wss = websocketServer;
+        this.gatewayGuildMemberData = gatewayGuildMemberData;
+    }
+
+    public get status(): WebSocketShardStatus {
+        return this.#status;
+    }
+
+    public setToken(token: Snowflake): void {
+        if (this.#token) {
+            throw new Error('Token has already been set');
+        }
+
+        this.#token = token;
+    }
+
+    // just handle with unpacked messages (not working at all)
+    private unpackMessage(data: Data, isBinary: boolean): GatewayReceivePayload | null {
+        if (!isBinary) {
+            try {
+                return JSON.parse(data as string) as GatewayReceivePayload;
+            } catch {
+                return null;
+            }
+        } else {
+            return null;
+        }
     }
 
     public async login(token: Snowflake): Promise<Snowflake> {
@@ -34,48 +69,117 @@ class Gateway extends Base {
     }
 
     private async establishConnection(token: Snowflake): Promise<void> {
-        if (this.session && this.sequence != undefined) {
-            this.socket = await this.resumeConnection(token);
-        } else {
-            this.socket = await this.connect(token);
+        let attempts = 0;
+        const maxAttempts = 5;
+
+        while (attempts < maxAttempts) {
+            try {
+                if (this.session && this.sequence != undefined) {
+                    this.socket = await this.resumeConnection(token);
+                } else {
+                    this.socket = await this.connect(token);
+                }
+                return;
+            } catch (_) {
+                attempts++;
+                const waitTime = Math.pow(2, attempts) * 1000;
+                Logger.warn(`Connection attempt ${attempts} failed. Retrying in ${waitTime}ms...`, [Gateway.name, this.establishConnection.name]);
+                await sleep(waitTime);
+            }
+        }
+
+        throw new Error('Failed to establish connection after multiple attempts');
+    }
+
+    private async identify(token: Snowflake) {
+        Logger.debug(['Waiting for identify throttle'], [Gateway.name, this.identify.name]);
+
+        await this.send({
+            op: GatewayOpcodes.Identify,
+            d: {
+                token: token,
+                intents: this.options.intents.reduce((a, b) => a | b, 0),
+                properties: {
+                    os: 'linux',
+                    browser: 'opera',
+                    device: 'ios'
+                },
+                large_threshold: 250
+            }
+        });
+
+        Logger.debug(['Identified with the gateway'], [Gateway.name, this.identify.name]);
+    }
+
+    private async resume(token: Snowflake) {
+        this.debug([
+            'Resuming session: ',
+            `resume url: ${this.resume_url}`,
+            `sequence: ${this.sequence}`
+        ]);
+
+        Logger.debug([
+            'Resuming session',
+            `resume url: ${this.resume_url}`,
+            `sequence: ${this.sequence}`
+        ], [Gateway.name, this.resume.name]);
+
+        this.#status = WebSocketShardStatus.Resuming;
+        this.replayedEvents = 0;
+
+        if (this.session && this.sequence) {
+            await this.send({
+                op: GatewayOpcodes.Resume,
+                d: {
+                    token: token,
+                    session_id: this.session,
+                    seq: this.sequence
+                }
+            });
         }
     }
 
-    private identify(token: Snowflake) {
-        this.send(GatewayOpcodes.Identify, {
-            token: token,
-            intents: this.options.intents.reduce((a, b) => a | b, 0),
-            properties: {
-                browser: 'disco',
-                device: 'disco',
-                os: 'windows'
-            },
-            large_threshold: 50
-        });
+    addUser(user: WebSocketUser) {
+        this.users.push(user);
     }
 
-    private resume(token: Snowflake) {
-        this.send(GatewayOpcodes.Resume, {
-            token: token,
-            session_id: this.session,
-            seq: this.sequence
-        });
+    removeUser(ws: WebSocket) {
+        this.users = this.users.filter((user) => user.ws !== ws);
     }
 
-    private heartbeatInterval(interval: number, sequence?: number | null) {
-        const pingInterval = setInterval(() => this.socket?.readyState === WebSocket.OPEN ? (this.socket.ping(), this.send(GatewayOpcodes.Heartbeat, sequence)) : clearInterval(pingInterval), interval);
+    private async heartbeat(sequence: number | null, requested = false) {
+        if (!this.isAck && !requested) {
+            return this.destroy({ reason: 'Zombie connection', recover: WebSocketShardDestroyRecovery.Resume });
+        }
+
+        await this.send({
+            op: GatewayOpcodes.Heartbeat,
+            d: sequence
+        });
+
+        this.lastHeartbeatAt = Date.now();
+        this.isAck = false;
     }
 
     // connect to gateway
     private connect(token: Snowflake): Promise<WebSocket | null> {
+        if (this.#status !== WebSocketShardStatus.Idle) {
+            throw new Error("Tried to connect a shard that wasn't idle");
+        }
+
+        if (!process.env.GATEWAY_URL) {
+            throw new Error('GATEWAY_URL is not defined in the environment variables');
+        }
+
         this.socket = new WebSocket(process.env.GATEWAY_URL);
 
-        Logger.info('Connecting to Discord Gateway...', 'Gateway');
+        Logger.info('Connecting to Discord Gateway...', [Gateway.name, this.connect.name]);
+        this.#status = WebSocketShardStatus.Connecting;
 
         return new Promise((resolve) => {
             this.socket?.on('open', async () => {
                 // identifying with the gateway
-                this.identify(token);
+                await this.identify(token);
 
                 const embed = new EmbedBuilder()
                     .setColor(0x1ed760)
@@ -83,53 +187,15 @@ class Gateway extends Base {
                     .setDescription('WebSocket connection was opened successfully!')
                     .setTimestamp(new Date().toISOString());
 
-                Logger.info("WebSocket it's on CONNECTED state.", 'Gateway');
-                await this.webhookLog({ embeds: [embed] });
+                Logger.info("WebSocket it's on CONNECTED state.", [Gateway.name, this.connect.name]);
+                await Util.webhookLog({ embeds: [embed] });
 
                 resolve(this.socket);
             });
 
-            this.socket?.on('message', this.handleMessage.bind(this, token));
-
-            this.socket?.on('pong', () => {
-                Logger.info('Pong received from Gateway!', 'Gateway');
-            });
-
-            this.socket?.on('close', async (code: number) => {
-                const embed = new EmbedBuilder()
-                    .setColor(0xff0000)
-                    .setTitle('Gateway')
-                    .setDescription(`Gateway connection was closed with code: ${code}`)
-                    .setTimestamp(new Date().toISOString());
-
-                await this.webhookLog({ embeds: [embed] });
-                Logger.warn(`Error code: ${code}`, 'Gateway');
-
-                if (code === 1000 || code === 1001) {
-                    Logger.info('Connection closed successfully.', 'Gateway');
-                } else {
-                    Logger.warn('Connection closed with errors. Attempt to reconnect', 'Gateway');
-                    await this.establishConnection(token);
-                }
-
-                resolve(null);
-            });
-
-            this.socket?.on('error', async (error) => {
-                const embed = new EmbedBuilder()
-                    .setColor(0xff0000)
-                    .setTitle('Gateway')
-                    .setDescription(`Error on Gateway connection: ${error}`)
-                    .setTimestamp(new Date().toISOString());
-
-                await this.webhookLog({ embeds: [embed] });
-                Logger.error('Error on Websocket connection: ' + error.message, 'Gateway');
-                await this.establishConnection(token);
-
-                resolve(null);
-            });
-
-            this.wss.on('connection', this.handleConnection.bind(this));
+            this.socket?.on('message', this.onMessage.bind(this, token));
+            this.socket?.on('close', async (code: number) => { await this.onClose(code); });
+            this.socket?.on('error', (error) => { this.onError(error); });
         });
     };
 
@@ -137,12 +203,12 @@ class Gateway extends Base {
     private resumeConnection(token: Snowflake): Promise<WebSocket | null> {
         this.socket = new WebSocket(`${this.resume_url}?v=10&encoding=json`);
 
-        Logger.info('Reconnecting to Discord Gateway...', 'Gateway Resume');
+        Logger.info('Reconnecting to Discord Gateway...', [Gateway.name, this.resumeConnection.name]);
 
         return new Promise((resolve) => {
             this.socket?.on('open', async () => {
                 // resuming connection with the gateway
-                this.resume(token);
+                await this.resume(token);
 
                 const embed = new EmbedBuilder()
                     .setColor(0x1ed760)
@@ -150,355 +216,512 @@ class Gateway extends Base {
                     .setDescription('WebSocket connection was resumed successfully!')
                     .setTimestamp(new Date().toISOString());
 
-                Logger.info("WebSocket it's on CONNECTED state.", 'Gateway Resume');
-                await this.webhookLog({ embeds: [embed] });
+                Logger.info("WebSocket it's on CONNECTED state.", [Gateway.name, this.resumeConnection.name]);
+                await Util.webhookLog({ embeds: [embed] });
 
                 resolve(this.socket);
             });
 
-            this.socket?.on('message', this.handleMessage.bind(this, token));
-
-            this.socket?.on('pong', () => {
-                Logger.info('Pong received from Gateway!', 'Gateway Resume');
-            });
-
-            this.socket?.on('close', async (code: number) => {
-                const embed = new EmbedBuilder()
-                    .setColor(0xff0000)
-                    .setTitle('Gateway Resume')
-                    .setDescription(`Gateway connection was closed with code: ${code}`)
-                    .setTimestamp(new Date().toISOString());
-
-                await this.webhookLog({ embeds: [embed] });
-                Logger.warn(`Error code: ${code}`, 'Gateway Resume');
-
-                if (code === 1000 || code === 1001) {
-                    Logger.info('Connection closed successfully.', 'Gateway Resume');
-                } else {
-                    Logger.warn('Connection closed with errors. Attempt to reconnect', 'Gateway Resume');
-                    await this.establishConnection(token);
-                }
-
-                resolve(null);
-            });
-
-            this.socket?.on('error', async (error) => {
-                const embed = new EmbedBuilder()
-                    .setColor(0xff0000)
-                    .setTitle('Gateway Resume')
-                    .setDescription(`Error on Gateway connection: ${error}`)
-                    .setTimestamp(new Date().toISOString());
-
-                await this.webhookLog({ embeds: [embed] });
-                Logger.error('Error on Websocket connection: ' + error.message, 'Gateway Resume');
-                await this.establishConnection(token);
-
-                resolve(null);
-            });
-
-            this.wss.on('connection', this.handleConnection.bind(this));
+            this.socket?.on('message', this.onMessage.bind(this, token));
+            this.socket?.on('close', async (code: number) => { await this.onClose(code); });
+            this.socket?.on('error', (error) => { this.onError(error); });
         });
     }
 
-    private async handleMessage(token: Snowflake, data: string): Promise<void> {
-        const { op, t, d, s } = JSON.parse(data) as GatewayReceivePayload;
+    private async onMessage(token: Snowflake, data: string): Promise<void> {
+        const payload = this.unpackMessage(data, false);
 
-        this.sequence = s;
+        if (!payload) return;
 
-        if (op === GatewayOpcodes.Hello) {
-            const jitter = Math.random();
-            const firstWait = Math.floor(d.heartbeat_interval * jitter);
+        const { op, t, d, s } = payload;
 
-            const embed = new EmbedBuilder()
-                .setColor(0xffce47)
-                .setTitle('Gateway Message')
-                .setDescription(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`)
-                .setTimestamp(new Date().toISOString());
-
-            Logger.info(`Preparing first heartbeat of the connection with a jitter of ${jitter}; waiting ${firstWait}ms`, 'Gateway Message');
-            await this.webhookLog({ embeds: [embed] });
-
-            this.heartbeatInterval(d.heartbeat_interval, this.sequence);
-        };
-
-        if (op === GatewayOpcodes.Reconnect) {
-            const embed = new EmbedBuilder()
-                .setColor(0xffce47)
-                .setTitle('Gateway Message')
-                .setDescription('Received reconnect opcode, reconnecting..')
-                .setTimestamp(new Date().toISOString());
-
-            await this.webhookLog({ embeds: [embed] });
-            Logger.warn('Received reconnect opcode, reconnecting..', 'Gateway Message');
-            this.socket?.close();
-            await this.establishConnection(token);
-        }
-
-        if (op === GatewayOpcodes.InvalidSession) {
-            const embed = new EmbedBuilder()
-                .setColor(0xffce47)
-                .setTitle('Gateway Message')
-                .setDescription('Received invalid session opcode, reconnecting..')
-                .setTimestamp(new Date().toISOString());
-
-            await this.webhookLog({ embeds: [embed] });
-            Logger.warn('Received invalid session opcode, reconnecting..', 'Gateway Message');
-
-            this.socket?.close();
-            await this.establishConnection(token);
-        }
-
-        // handling events:
-        if (op === GatewayOpcodes.Dispatch && t) {
-            if ([GatewayDispatchEvents.Ready].includes(t)) {
-                const { resume_gateway_url, session_id } = d as GatewayReadyDispatchData;
-
-                const embed = new EmbedBuilder()
-                    .setColor(0x1ed760)
-                    .setTitle('Gateway Message')
-                    .setDescription('Received ready event, connection established!')
-                    .setTimestamp(new Date().toISOString());
-
-                await this.webhookLog({ embeds: [embed] });
-
-                this.resume_url = resume_gateway_url;
-                this.session = session_id;
-            }
-
-            if ([GatewayDispatchEvents.Resumed].includes(t)) {
-                const embed = new EmbedBuilder()
-                    .setColor(0x1ed760)
-                    .setTitle('Gateway Message')
-                    .setDescription('Received resumed event, connection resumed!')
-                    .setTimestamp(new Date().toISOString());
-
-                await this.webhookLog({ embeds: [embed] });
-            }
-
-            if ([GatewayDispatchEvents.MessageCreate].includes(t)) {
-                this.event.emit(GatewayDispatchEvents.MessageCreate, d as GatewayMessageCreateDispatchData);
-            }
-
-            // guild member chunk event
-            if ([GatewayDispatchEvents.GuildMembersChunk].includes(t)) {
-                const { members, presences, guild_id } = d as GatewayGuildMembersChunkDispatchData;
-
-                if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
-                    const data: DiscordUser | undefined = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/' + members[0].user?.id, {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': 'Bearer ' + process.env.AUTH_KEY
-                        }
-                    })
-                        .then((res) => res.data as DiscordUser)
-                        .catch(() => undefined);
-
-                    this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
-
-                    // get track event
-                    if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
-                        const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
-
-                        if (activity && activity.sync_id) {
-                            const data = await SpotifyGetTrackController.getTrack(activity.sync_id);
-
-                            if (data && Object.keys(data).length) {
-                                this.event.emit(SpotifyEvents.GetTrack, data);
-                            }
-                        }
-                    }
-
-                    this.event.emit(GatewayDispatchEvents.GuildMembersChunk, this.member);
-                };
-            }
-
-            // presence update event
-            if ([GatewayDispatchEvents.PresenceUpdate].includes(t)) {
-                const { user, activities, status, guild_id } = d as GatewayPresenceUpdateDispatchData;
-
-                if (Object.keys(d).length && user.id === process.env.USER_ID) {
-                    this.member = { ...this.member, user, activities, status, guild_id };
-
-                    // get track event
-                    if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
-                        const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
-
-                        if (activity && activity.sync_id) {
-                            const data = await SpotifyGetTrackController.getTrack(activity.sync_id);
-
-                            if (data && Object.keys(data).length) {
-                                this.event.emit(SpotifyEvents.GetTrack, data);
-                            }
-                        }
-                    }
-
-                    this.event.emit(GatewayDispatchEvents.PresenceUpdate, this.member);
+        switch (op) {
+            case GatewayOpcodes.Dispatch: {
+                if (this.#status === WebSocketShardStatus.Resuming) {
+                    this.replayedEvents++;
                 }
-            }
-        }
-    }
 
-    private async handleConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
-        const id = Math.random().toString(36).substring(7);
+                switch (t) {
+                    // ready event
+                    case GatewayDispatchEvents.Ready: {
+                        this.#status = WebSocketShardStatus.Ready;
 
-        this.connections.set(id, ws);
-
-        const connection = this.connections.get(id);
-
-        if (connection) {
-            const ipObject = req.headers['x-forwarded-for'];
-            const ip = typeof (ipObject) === 'object' ? ipObject[0] : ipObject?.split(',')[0];
-            const interval = 41250;
-
-            setInterval(() => { connection.send(this.payloadData({ op: GatewayOpcodes.Heartbeat, d: { heartbeat_interval: interval } })); }, interval);
-
-            const presenceUpdateHandler = (data: GatewayDispatchPayload) => { connection.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: data })); };
-            const guildMembersChunkHandler = (data: GatewayDispatchPayload) => { connection.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: data })); };
-            const spotifyTrackHandler = (data: SpotifyTrackResponse) => { connection.send(this.payloadData({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data })); };
-
-            this.event.on(GatewayDispatchEvents.PresenceUpdate, presenceUpdateHandler);
-            this.event.on(GatewayDispatchEvents.GuildMembersChunk, guildMembersChunkHandler);
-            this.event.on(SpotifyEvents.GetTrack, spotifyTrackHandler);
-
-            const pingInterval = setInterval(() => {
-                connection?.readyState === WebSocket.OPEN ? connection.ping() : clearInterval(pingInterval);
-            }, interval);
-
-            connection.on('message', async (data: string) => {
-                const buffer = Buffer.from(data, 'hex');
-                const str = buffer.toString('utf8');
-                const { op, d } = JSON.parse(str) as GatewaySendPayload;
-
-                switch (op) {
-                    case GatewayOpcodes.Heartbeat: {
-                        connection?.ping();
-                        connection?.send(this.payloadData({ op: GatewayOpcodes.Heartbeat }));
-                        break;
-                    };
-
-                    case GatewayOpcodes.RequestGuildMembers: {
-                        const { user_ids } = d as GatewayRequestGuildMembersDataWithUserIds;
-
-                        this.send(GatewayOpcodes.RequestGuildMembers, {
-                            guild_id: process.env.GUILD_ID,
-                            user_ids: user_ids,
-                            presences: true,
-                            limit: 0
-                        });
+                        const { resume_gateway_url, session_id } = d;
 
                         const embed = new EmbedBuilder()
                             .setColor(0x1ed760)
-                            .setTitle(`[${id}] - Connection request!`)
-                            .setDescription(`[${id}] - [${ip}]: requested a guild member.`)
+                            .setTitle('Gateway Message')
+                            .setDescription('Received ready event, connection established!')
                             .setTimestamp(new Date().toISOString());
 
-                        await this.webhookLog({ embeds: [embed] });
-                        Logger.info(`[${id}] - [${ip}]: requested a guild member.`, 'Connection');
+                        await Util.webhookLog({ embeds: [embed] });
+
+                        this.resume_url = resume_gateway_url;
+                        this.session = session_id;
+
                         break;
                     }
 
-                    default: {
-                        connection?.send(this.payloadData({ op: null, t: null, d: null }));
+                    // resumed event
+                    case GatewayDispatchEvents.Resumed: {
+                        this.#status = WebSocketShardStatus.Ready;
+
+                        Logger.debug([`Resumed and replayed ${this.replayedEvents} events`], [Gateway.name, this.onMessage.name]);
+
+                        const embed = new EmbedBuilder()
+                            .setColor(0x1ed760)
+                            .setTitle('Gateway Message')
+                            .setDescription('Received resumed event, connection resumed!')
+                            .setTimestamp(new Date().toISOString());
+
+                        await Util.webhookLog({ embeds: [embed] });
+
+                        break;
+                    }
+
+                    // message create event
+                    case GatewayDispatchEvents.MessageCreate: {
+                        this.emit(GatewayDispatchEvents.MessageCreate, d);
+
+                        break;
+                    }
+
+                    // guild member chunk event
+                    case GatewayDispatchEvents.GuildMembersChunk: {
+                        const { members, presences, guild_id } = d;
+
+                        if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
+                            const data: DiscordUser | undefined = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/profile' + members[0].user?.id, {
+                                method: 'GET',
+                                headers: {
+                                    'Authorization': 'Bearer ' + process.env.AUTH_KEY
+                                }
+                            })
+                                .then((res) => res.data as DiscordUser)
+                                .catch(() => undefined);
+
+                            this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
+
+                            // get track event
+                            if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
+                                const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
+
+                                if (activity) {
+                                    const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
+
+                                    if (data && Object.keys(data).length) {
+                                        this.emit(SpotifyEvents.GetTrack, data);
+                                        this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data });
+                                    }
+                                }
+                            }
+
+                            this.emit(GatewayDispatchEvents.GuildMembersChunk, this.member);
+                            this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: this.member });
+                        };
+
+                        break;
+                    }
+
+                    // presence update event
+                    case GatewayDispatchEvents.PresenceUpdate: {
+                        const { user, activities, status, guild_id } = d;
+
+                        if (Object.keys(d).length && user.id === process.env.USER_ID) {
+                            this.member = { ...this.member, user, activities, status, guild_id };
+
+                            // get track event
+                            if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
+                                const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
+
+                                if (activity) {
+                                    const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
+
+                                    if (data && Object.keys(data).length) {
+                                        this.emit(SpotifyEvents.GetTrack, data);
+                                        this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data });
+                                    }
+                                }
+                            }
+
+                            this.emit(GatewayDispatchEvents.PresenceUpdate, this.member);
+                            this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: this.member });
+                        }
+
                         break;
                     }
                 }
-            });
 
-            connection?.on('pong', () => {
-                Logger.info(`[${id}] - [${ip}]: pong received from connection!`, 'Connection');
-            });
+                break;
+            }
 
-            connection?.on('close', async (code: number) => {
+            case GatewayOpcodes.Heartbeat: {
+                await this.heartbeat(s, true);
+
+                break;
+            }
+
+            case GatewayOpcodes.HeartbeatAck: {
+                this.isAck = true;
+
+                const ackAt = Date.now();
+                const latency = ackAt - this.lastHeartbeatAt;
+
+                this.emit(WebSocketShardEvents.HeartbeatComplete, {
+                    ackAt,
+                    heartbeatAt: this.lastHeartbeatAt,
+                    latency: latency
+                });
+
+                Logger.debug(`Heartbeat latency: ${latency}ms`, [Gateway.name, this.onMessage.name]);
+
+                break;
+            }
+
+            case GatewayOpcodes.Reconnect: {
+                await this.destroy({
+                    reason: 'Told to reconnect by Discord',
+                    recover: WebSocketShardDestroyRecovery.Resume
+                });
+
+                break;
+            }
+
+            case GatewayOpcodes.Hello: {
+                this.emit(WebSocketShardEvents.Hello);
+
+                const jitter = Math.random();
+                const firstWait = Math.floor(d.heartbeat_interval * jitter);
+
+                Logger.debug(`Preparing first heartbeat of the connection with a jitter of ${jitter}, waiting ${firstWait}ms`, [Gateway.name, this.onMessage.name]);
+
+                try {
+                    const controller = new AbortController();
+                    this.initialHeartbeatTimeoutController = controller;
+                    await sleep(firstWait, undefined, { signal: controller.signal });
+                } catch {
+                    Logger.debug(['Cancelled initial heartbeat due to #destroy being called'], [Gateway.name, this.onMessage.name]);
+                    return;
+                } finally {
+                    this.initialHeartbeatTimeoutController = null;
+                }
+
+                await this.heartbeat(s);
+
+                Logger.debug([`First heartbeat sent, starting to beat every ${d.heartbeat_interval}ms`], [Gateway.name, this.onMessage.name]);
+                this.heartbeatInterval = setInterval(() => this.heartbeat(s), d.heartbeat_interval);
+
+                break;
+            };
+
+            case GatewayOpcodes.InvalidSession: {
                 const embed = new EmbedBuilder()
-                    .setColor(0xff0000)
-                    .setTitle(`[${id}] - Connection closed!`)
-                    .setDescription(`[${id}] - [${ip}]: was disconnected by code: ${code}.`)
-                    .setFooter({ text: `Connections: ${this.connections.size}` })
+                    .setColor(0xffce47)
+                    .setTitle('Gateway Message')
+                    .setDescription('Received invalid session opcode, reconnecting..')
                     .setTimestamp(new Date().toISOString());
 
-                await this.webhookLog({ embeds: [embed] });
-                Logger.warn(`[${id}] - [${ip}]: was disconnected by code: ${code}.`, 'Connection');
-                Logger.info(`${this.connections.size} connections opened.`, 'Connection');
+                await Util.webhookLog({ embeds: [embed] });
 
-                connection?.close();
-                this.connections.delete(id);
-                clearInterval(pingInterval);
+                this.debug([`Invalid session; will attempt to resume: ${payload.d.toString()}`]);
+                Logger.warn(`Invalid session; will attempt to resume: ${payload.d.toString()}`, [Gateway.name, this.onMessage.name]);
 
-                this.event.removeListener(GatewayDispatchEvents.PresenceUpdate, presenceUpdateHandler);
-                this.event.removeListener(GatewayDispatchEvents.GuildMembersChunk, guildMembersChunkHandler);
-                this.event.removeListener(SpotifyEvents.GetTrack, spotifyTrackHandler);
-            });
+                if (payload.d) {
+                    await this.resume(token);
+                } else {
+                    await this.destroy({
+                        reason: 'Invalid session',
+                        recover: WebSocketShardDestroyRecovery.Reconnect
+                    });
+                }
 
-            connection?.on('error', async (error) => {
-                const embed = new EmbedBuilder()
-                    .setColor(0xff0000)
-                    .setTitle(`[${id}] - Connection error!`)
-                    .setDescription(`[${id}] - [${ip}]: was disconnected by error: ${error.message}.`)
-                    .setFooter({ text: `Connections: ${this.connections.size}` })
-                    .setTimestamp(new Date().toISOString());
+                break;
+            }
+        }
 
-                await this.webhookLog({ embeds: [embed] });
-                Logger.error(`[${id}] - [${ip}]: was disconnected by error: ${error.message}.`, 'Connection');
-                Logger.info(`${this.connections.size} connections opened.`, 'Connection');
-                Logger.warn(error.stack, 'Connection');
+        this.sequence = s;
+    }
 
-                connection?.close();
-                this.connections.delete(id);
-                clearInterval(pingInterval);
+    private onError(error: Error) {
+        this.emit(WebSocketShardEvents.Error, error);
 
-                this.event.removeListener(GatewayDispatchEvents.PresenceUpdate, presenceUpdateHandler);
-                this.event.removeListener(GatewayDispatchEvents.GuildMembersChunk, guildMembersChunkHandler);
-                this.event.removeListener(SpotifyEvents.GetTrack, spotifyTrackHandler);
-            });
+        this.failedToConnectDueToNetworkError = true;
 
-            const embed = new EmbedBuilder()
-                .setColor(0x1ed760)
-                .setTitle(`[${id}] - New Connection`)
-                .setURL(`https://tools.keycdn.com/geo?host=${ip}`)
-                .setDescription(`[${id}] - [${ip}]: connected successfully to websocket.`)
-                .setFooter({ text: `Connections: ${this.connections.size}` })
-                .setTimestamp(new Date().toISOString());
+        Logger.error(error.message, [Gateway.name, this.onError.name]);
 
-            await this.webhookLog({ embeds: [embed] });
-            Logger.info(`[${id}] - [${ip}]: was connected successfully.`, 'Connection');
-            Logger.info('A new connection was opened.', 'Connection');
-            Logger.info(`${this.connections.size} connections opened.`, 'Connection');
+        if (error.stack) {
+            Logger.warn(error.stack, [Gateway.name, this.onError.name]);
         }
     }
 
-    private send(op: GatewayOpcodes, d?: any): void {
-        this.socket && this.socket.readyState === WebSocket.OPEN ? this.socket.send(JSON.stringify({ op, d })) : undefined;
+    private onClose(code: CloseCodes | GatewayCloseCodes) {
+        this.emit(WebSocketShardEvents.Closed, code);
+
+        switch (code) {
+            case CloseCodes.Normal: {
+                return this.destroy({
+                    code,
+                    reason: 'Got disconnected by Discord',
+                    recover: WebSocketShardDestroyRecovery.Reconnect
+                });
+            }
+
+            case CloseCodes.Resuming: {
+                break;
+            }
+
+            case GatewayCloseCodes.UnknownError: {
+                Logger.debug([`An unknown error occurred: ${code}`], [Gateway.name, this.onClose.name]);
+                return this.destroy({ code, recover: WebSocketShardDestroyRecovery.Resume });
+            }
+
+            case GatewayCloseCodes.UnknownOpcode: {
+                Logger.debug(['An invalid opcode was sent to Discord.'], [Gateway.name, this.onClose.name]);
+                return this.destroy({ code, recover: WebSocketShardDestroyRecovery.Resume });
+            }
+
+            case GatewayCloseCodes.DecodeError: {
+                Logger.debug(['An invalid payload was sent to Discord.'], [Gateway.name, this.onClose.name]);
+                return this.destroy({ code, recover: WebSocketShardDestroyRecovery.Resume });
+            }
+
+            case GatewayCloseCodes.NotAuthenticated: {
+                Logger.debug(['A request was somehow sent before the identify/resume payload.'], [Gateway.name, this.onClose.name]);
+                return this.destroy({ code, recover: WebSocketShardDestroyRecovery.Reconnect });
+            }
+
+            case GatewayCloseCodes.AuthenticationFailed: {
+                this.emit(
+                    WebSocketShardEvents.Error,
+
+                    new Error('Authentication failed')
+                );
+                return this.destroy({ code });
+            }
+
+            case GatewayCloseCodes.AlreadyAuthenticated: {
+                Logger.debug(['More than one auth payload was sent.'], [Gateway.name, this.onClose.name]);
+                return this.destroy({ code, recover: WebSocketShardDestroyRecovery.Reconnect });
+            }
+
+            case GatewayCloseCodes.InvalidSeq: {
+                Logger.debug(['An invalid sequence was sent.'], [Gateway.name, this.onClose.name]);
+                return this.destroy({ code, recover: WebSocketShardDestroyRecovery.Reconnect });
+            }
+
+            case GatewayCloseCodes.RateLimited: {
+                Logger.debug(['The WebSocket rate limit has been hit, this should never happen'], [Gateway.name, this.onClose.name]);
+                return this.destroy({ code, recover: WebSocketShardDestroyRecovery.Reconnect });
+            }
+
+            case GatewayCloseCodes.SessionTimedOut: {
+                Logger.debug(['Session timed out.'], [Gateway.name, this.onClose.name]);
+                return this.destroy({ code, recover: WebSocketShardDestroyRecovery.Resume });
+            }
+
+            case GatewayCloseCodes.InvalidShard: {
+                this.emit(WebSocketShardEvents.Error, new Error('Invalid shard'));
+                return this.destroy({ code });
+            }
+
+            case GatewayCloseCodes.ShardingRequired: {
+                this.emit(
+                    WebSocketShardEvents.Error,
+
+                    new Error('Sharding is required')
+                );
+                return this.destroy({ code });
+            }
+
+            case GatewayCloseCodes.InvalidAPIVersion: {
+                this.emit(
+                    WebSocketShardEvents.Error,
+
+                    new Error('Used an invalid API version')
+                );
+                return this.destroy({ code });
+            }
+
+            case GatewayCloseCodes.InvalidIntents: {
+                this.emit(
+                    WebSocketShardEvents.Error,
+
+                    new Error('Used invalid intents')
+                );
+                return this.destroy({ code });
+            }
+
+            case GatewayCloseCodes.DisallowedIntents: {
+                this.emit(
+                    WebSocketShardEvents.Error,
+
+                    new Error('Used disallowed intents')
+                );
+                return this.destroy({ code });
+            }
+
+            default: {
+                Logger.debug([
+                    `The gateway closed with an unexpected code ${code}, attempting to ${this.failedToConnectDueToNetworkError ? 'reconnect' : 'resume'
+                    }.`
+                ], [Gateway.name, this.onClose.name]);
+                return this.destroy({
+                    code,
+                    recover: this.failedToConnectDueToNetworkError
+                        ? WebSocketShardDestroyRecovery.Reconnect
+                        : WebSocketShardDestroyRecovery.Resume
+                });
+            }
+        }
+    }
+
+    public async destroy(options: WebSocketShardDestroyOptions = {}) {
+        if (this.#status === WebSocketShardStatus.Idle) {
+            this.debug(['Tried to destroy a shard that was idle']);
+            Logger.debug(['Tried to destroy a shard that was idle'], [Gateway.name, this.destroy.name]);
+            return;
+        }
+
+        if (!options.code) {
+            options.code = options.recover === WebSocketShardDestroyRecovery.Resume ? CloseCodes.Resuming : CloseCodes.Normal;
+        }
+
+        this.debug([
+            'Destroying shard',
+            `by reason: ${options.reason ?? 'none'}`,
+            `with code: ${options.code}.`,
+            `Recover: ${options.recover === undefined ? 'none' : WebSocketShardDestroyRecovery[options.recover]}`
+        ]);
+
+        Logger.debug([
+            'Destroying shard',
+            `by reason: ${options.reason ?? 'none'}`,
+            `with code: ${options.code}.`,
+            `Recover: ${options.recover === undefined ? 'none' : WebSocketShardDestroyRecovery[options.recover]}`
+        ], [Gateway.name, this.destroy.name]);
+
+        // RESET STATE
+        this.isAck = true;
+
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+        }
+
+        if (this.initialHeartbeatTimeoutController) {
+            this.initialHeartbeatTimeoutController.abort();
+            this.initialHeartbeatTimeoutController = null;
+        }
+
+        this.lastHeartbeatAt = -1;
+
+        for (const controller of this.timeoutAbortControllers.values()) {
+            controller.abort();
+        }
+
+        this.timeoutAbortControllers.clear();
+
+        this.failedToConnectDueToNetworkError = false;
+
+        if (this.socket) {
+            this.socket.removeAllListeners();
+
+            const shouldClose = this.socket.readyState === WebSocket.OPEN;
+
+            Logger.debug([
+                'Connection status during destroy',
+                `Needs closing: ${shouldClose}`,
+                `Ready state: ${this.socket.readyState}`
+            ], [Gateway.name, this.destroy.name]);
+
+            if (shouldClose) {
+                let outerResolve: () => void;
+
+                const promise = new Promise<void>((resolve) => {
+                    outerResolve = resolve;
+                });
+
+                this.socket.onclose = outerResolve!;
+                this.socket.close(options.code, options.reason);
+
+                await promise;
+
+                this.emit(WebSocketShardEvents.Closed, options.code);
+            }
+
+            this.socket.onerror = null;
+        } else {
+            Logger.debug(['Destroying a shard that has no connection; please open an issue on GitHub'], [Gateway.name, this.destroy.name]);
+        }
+
+
+        this.#status = WebSocketShardStatus.Idle;
+    }
+
+    public async send(payload: GatewaySendPayload): Promise<void> {
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+            throw new Error("WebSocketShard wasn't connected or not opened");
+        }
+
+        if (ImportantGatewayOpcodes.has(payload.op)) {
+            this.socket.send(JSON.stringify(payload));
+            return;
+        }
+
+        const now = Date.now();
+
+        if (now >= this.sendRateLimitState.resetAt) {
+            this.sendRateLimitState = Util.getInitialSendRateLimitState();
+        }
+
+        if (this.sendRateLimitState.sent + 1 >= 115) {
+            const sleepFor = this.sendRateLimitState.resetAt - now + Math.random() * 1_500;
+
+            this.debug([`Was about to hit the send rate limit, sleeping for ${sleepFor}ms`]);
+            Logger.debug([`Was about to hit the send rate limit, sleeping for ${sleepFor}ms`], [Gateway.name, this.send.name]);
+
+            const controller = new AbortController();
+
+            const interrupted = await Promise.race([
+                sleep(sleepFor).then(() => false)
+            ]);
+
+            if (interrupted) {
+                this.debug(['Connection closed while waiting for the send rate limit to reset, re-queueing payload']);
+                Logger.debug(['Connection closed while waiting for the send rate limit to reset, re-queueing payload'], [Gateway.name, this.send.name]);
+
+                return this.send(payload);
+            }
+
+            controller.abort();
+        }
+
+        this.sendRateLimitState.sent++;
+        this.socket.send(JSON.stringify(payload));
     };
 
-    public on(event: GatewayDispatchEvents, listener: (...args: string[]) => Promise<void> | void): EventEmitter {
-        return this.event.on(event, listener);
+    private debug(messages: [string, ...string[]]) {
+        this.emit(WebSocketShardEvents.Debug, messages.join('\n\t'));
     }
 
-    public off(event: GatewayDispatchEvents, listener: (...args: string[]) => Promise<void> | void): EventEmitter {
-        return this.event.off(event, listener);
-    }
+    private sendUserGatewayEvents(payload: WebsocketReceivePayload) {
+        const data = Util.payloadData(payload);
 
-    public once(event: GatewayDispatchEvents, listener: (...args: string[]) => Promise<void> | void): EventEmitter {
-        return this.event.once(event, listener);
-    }
-
-    private payloadData({ op, d, t }: { op: GatewayOpcodes | null, d?: any, t?: GatewayDispatchEvents | SpotifyEvents | null }): string {
-        return JSON.stringify({ op: op ?? null, t: t ?? null, d: d ?? null });
-    }
-
-    private async webhookLog(data: RESTPostAPIWebhookWithTokenJSONBody): Promise<void> {
-        await fetch(process.env.WEBHOOK_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(data, null, 2)
-        })
-            .catch((err: unknown) => {
-                Logger.error((err as Error).message, [Gateway.name, this.webhookLog.name]);
-                Logger.warn((err as Error).stack, [Gateway.name, this.webhookLog.name]);
-            });
+        for (const user of this.users) {
+            if (user.ws.readyState === WebSocket.OPEN) {
+                try {
+                    user.ws.send(data);
+                    this.gatewayGuildMemberData.set(user.id, data);
+                    Logger.info(`[${user.id}] - [${user.ip}]: sent data`, [Gateway.name, this.sendUserGatewayEvents.name]);
+                } catch (error) {
+                    Logger.error(`Failed to send data to user ${user.id}: ${(error as Error).message}`, [Gateway.name, this.sendUserGatewayEvents.name]);
+                }
+            } else {
+                Logger.warn(`WebSocket for user ${user.id} is not open. Skipping.`, [Gateway.name, this.sendUserGatewayEvents.name]);
+            }
+        }
     }
 }
 
-export { Gateway };
+export {
+    Gateway
+};
