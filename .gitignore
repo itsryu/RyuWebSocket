@@ -1,9 +1,5 @@
 ### Node ###
 
-# Lock
-*lock.json
-*.lock
-
 # Logs
 logs
 *.log
