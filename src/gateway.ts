@@ -291,7 +291,7 @@ class Gateway extends EventEmitter {
                         const { members, presences, guild_id } = d;
 
                         if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
-                            const data: DiscordUser | undefined = await axios.get((process.env.STATE === 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/profile' + members[0].user?.id, {
+                            const data: DiscordUser | undefined = await axios.get((process.env.STATE == 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/profile/' + members[0].user?.id, {
                                 method: 'GET',
                                 headers: {
                                     'Authorization': 'Bearer ' + process.env.AUTH_KEY
@@ -582,9 +582,7 @@ class Gateway extends EventEmitter {
             return;
         }
 
-        if (!options.code) {
-            options.code = options.recover === WebSocketShardDestroyRecovery.Resume ? CloseCodes.Resuming : CloseCodes.Normal;
-        }
+        options.code ??= options.recover === WebSocketShardDestroyRecovery.Resume ? CloseCodes.Resuming : CloseCodes.Normal;
 
         this.debug([
             'Destroying shard',

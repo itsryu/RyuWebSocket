@@ -28,10 +28,7 @@ class Server extends Client {
         this.app.use(express.json());
         this.app.use(express.urlencoded({ extended: true }));
         this.app.use(this.initRoutes());
-
-        this.app.use((req, res) => {
-            new NotFoundController(this).run(req, res);
-        });
+        this.app.use((req, res) => { new NotFoundController(this).run(req, res); });
     }
 
     private initRoutes(): Router {
