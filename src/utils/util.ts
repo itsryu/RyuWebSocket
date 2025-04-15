@@ -32,7 +32,7 @@ class Util {
 
         return await new Promise<DiscordUser | null>(fetchUser);
     }
-    
+
     public static async getDiscordUserProfile(id: Snowflake): Promise<DiscordUser | null> {
         const fetchUser = async (resolve: (V: DiscordUser | null) => void) => {
             try {
@@ -110,6 +110,18 @@ class Util {
             Logger.error((err as Error).message, 'GatewayUtils');
             Logger.warn((err as Error).stack, 'GatewayUtils');
         });
+    }
+
+    static normalizeResumeUrl(url: string): URL | null {
+        try {
+            const resumeUrl = new URL(url);
+            resumeUrl.protocol = resumeUrl.protocol || 'wss:';
+            resumeUrl.searchParams.set('v', resumeUrl.searchParams.get('v') ?? '10');
+            resumeUrl.searchParams.set('encoding', resumeUrl.searchParams.get('encoding') ?? 'json');
+            return resumeUrl;
+        } catch (error) {
+            return null;
+        }
     }
 
     static payloadData(payload: WebsocketReceivePayload) {

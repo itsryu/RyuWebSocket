@@ -6,6 +6,10 @@ const jestConfig: JestConfigWithTsJest = {
     extensionsToTreatAsEsm: ['.ts'],
     rootDir: './',
     testEnvironment: 'node',
+    moduleNameMapper: {
+        '^ws$': '<rootDir>/__mocks__/ws.ts'
+    },
+    testTimeout: 10000,
     testMatch: [
         '<rootDir>/__tests__/*.test.ts'
     ]

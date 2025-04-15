@@ -43,6 +43,9 @@ class Client {
             });
 
         if (this.gateway) {
+            setTimeout(() => this.gateway?.performGatewayReconnect(), 1000 * 60);
+            // setTimeout(() => this.gateway?.performWebsocketUnknownClosure(), 1000 * 60);
+
             this.connection = new Connection(this.wss, this.gateway);
         } else {
             Logger.error('Failed to initialize connection. Please check your gateway instance.', [Connection.name, this.constructor.name]);

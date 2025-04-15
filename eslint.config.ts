@@ -39,6 +39,12 @@ export default tseslint.config(
             '@typescript-eslint/no-non-null-assertion': 'off',
             '@typescript-eslint/no-explicit-any': 'off',
             "@typescript-eslint/no-inferrable-types": "off",
+            '@typescript-eslint/no-unused-vars': [
+                'error',
+                {
+                    'argsIgnorePattern': '^_'
+                }
+            ],
             'indent': [
                 'error',
                 4,
@@ -64,9 +70,6 @@ export default tseslint.config(
             'semi': [
                 2,
                 'always'
-            ],
-            'no-unused-vars': [
-                'warn'
             ]
         }
     },
@@ -77,7 +80,7 @@ export default tseslint.config(
     },
     {
         // enable jest rules on test files
-        files: ['__tests__/**'],
+        files: ['__tests__/**/*', '__mocks__/**/*'],
         ...jestPlugin.configs['flat/recommended']
     }
 );

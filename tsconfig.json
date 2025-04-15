@@ -31,12 +31,15 @@
   },
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "eslint.config.ts"
   ],
   "include": [
     "*.ts",
     "*.d.ts",
     "./src/*.ts",
-    "./src/**/*.ts"
+    "./src/**/*.ts",
+    "__mocks__/**/*",
+    "__tests__/**/*"
   ]
 }
