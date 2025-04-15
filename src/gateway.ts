@@ -1,6 +1,6 @@
 import WebSocket, { type Data } from 'ws';
-import { ClientOptions, CloseCodes, DiscordUser, ImportantGatewayOpcodes, MemberPresence, SendRateLimitState, WebsocketReceivePayload, WebSocketShardDestroyOptions, WebSocketShardDestroyRecovery, WebSocketShardEvents, WebSocketShardStatus, WebSocketUser } from './types';
-import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewaySendPayload, GatewayCloseCodes } from 'discord-api-types/v10';
+import { ClientOptions, CloseCodes, DiscordUser, ImportantGatewayOpcodes, MemberPresence, SendRateLimitState, SpotifyTrackResponse, WebsocketReceivePayload, WebSocketReceivePayloadEvents, WebSocketShardDestroyOptions, WebSocketShardDestroyRecovery, WebSocketShardEvents, WebSocketShardStatus, WebSocketUser } from './types';
+import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewaySendPayload, GatewayCloseCodes, GatewayRequestGuildMembersDataWithUserIds } from 'discord-api-types/v10';
 import EventEmitter from 'node:events';
 import { EmbedBuilder } from './structures';
 import axios from 'axios';
@@ -17,7 +17,7 @@ class Gateway extends EventEmitter {
     private readonly options: ClientOptions;
     private member!: MemberPresence;
     public connections = new Map<string, WebSocket>();
-    private resume_url?: string;
+    private resume_url?: URL;
     private session?: string;
     private sequence?: number | null;
     private lastHeartbeatAt: number = -1;
@@ -30,6 +30,12 @@ class Gateway extends EventEmitter {
     private failedToConnectDueToNetworkError = false;
     private users: WebSocketUser[] = [];
     private gatewayGuildMemberData: Map<string, string>;
+    private connectionAttempts = 0;
+    private maxConnectionAttempts = 10;
+    private reconnectDelay = 1000;
+    private maxReconnectDelay = 60000;
+    private messageQueue: GatewaySendPayload[] = [];
+    private isReconnecting = false;
 
     constructor(options: ClientOptions, gatewayGuildMemberData: Map<string, string>) {
         super({ captureRejections: true });
@@ -42,12 +48,20 @@ class Gateway extends EventEmitter {
         return this.#status;
     }
 
-    public setToken(token: Snowflake): void {
+    private setToken(token: Snowflake): void {
         if (this.#token) {
             throw new Error('Token has already been set');
         }
 
         this.#token = token;
+    }
+
+    get token(): Snowflake {
+        if (!this.#token) {
+            throw new Error('Token is not set');
+        }
+
+        return this.#token;
     }
 
     // just handle with unpacked messages (not working at all)
@@ -65,26 +79,35 @@ class Gateway extends EventEmitter {
 
     public async login(token: Snowflake): Promise<Snowflake> {
         await this.establishConnection(token);
+        this.setToken(token);
+        
         return token;
     }
 
-    private async establishConnection(token: Snowflake): Promise<void> {
-        let attempts = 0;
-        const maxAttempts = 5;
+    private async establishConnection(token: Snowflake, resume_url?: URL, sequence?: number, session?: string): Promise<void> {
+        this.connectionAttempts = 0;
+        this.#status = WebSocketShardStatus.Idle;
 
-        while (attempts < maxAttempts) {
+        while (this.connectionAttempts < this.maxConnectionAttempts) {
             try {
-                if (this.session && this.sequence != undefined) {
-                    this.socket = await this.resumeConnection(token);
+                if (session && sequence !== undefined && resume_url) {
+                    this.socket = await this.resumeConnection(resume_url, sequence, session, token);
                 } else {
                     this.socket = await this.connect(token);
                 }
+
                 return;
-            } catch (_) {
-                attempts++;
-                const waitTime = Math.pow(2, attempts) * 1000;
-                Logger.warn(`Connection attempt ${attempts} failed. Retrying in ${waitTime}ms...`, [Gateway.name, this.establishConnection.name]);
-                await sleep(waitTime);
+            } catch (error) {
+                Logger.error(`Connection attempt ${this.connectionAttempts} failed: ${error}`, [Gateway.name, this.establishConnection.name]);
+
+                if (this.connectionAttempts >= this.maxConnectionAttempts) {
+                    throw new Error('Max connection attempts reached');
+                }
+
+                const delay = Math.min(this.reconnectDelay * Math.pow(2, this.connectionAttempts - 1), this.maxReconnectDelay);
+                await sleep(delay + Math.random() * 1000);
+            } finally {
+                this.connectionAttempts++;
             }
         }
 
@@ -107,33 +130,35 @@ class Gateway extends EventEmitter {
                 large_threshold: 250
             }
         });
-
+        
         Logger.debug(['Identified with the gateway'], [Gateway.name, this.identify.name]);
     }
 
-    private async resume(token: Snowflake) {
+    private async resume(resume_url: URL, sequence: number, session: string, token: Snowflake) {
         this.debug([
             'Resuming session: ',
-            `resume url: ${this.resume_url}`,
-            `sequence: ${this.sequence}`
+            `session: ${session}`,
+            `resume url: ${resume_url}`,
+            `sequence: ${sequence}`
         ]);
 
         Logger.debug([
             'Resuming session',
-            `resume url: ${this.resume_url}`,
-            `sequence: ${this.sequence}`
+            `session: ${session}`,
+            `resume url: ${resume_url}`,
+            `sequence: ${sequence}`
         ], [Gateway.name, this.resume.name]);
 
         this.#status = WebSocketShardStatus.Resuming;
         this.replayedEvents = 0;
 
-        if (this.session && this.sequence) {
+        if (session && sequence) {
             await this.send({
                 op: GatewayOpcodes.Resume,
                 d: {
                     token: token,
-                    session_id: this.session,
-                    seq: this.sequence
+                    session_id: session,
+                    seq: sequence
                 }
             });
         }
@@ -147,7 +172,7 @@ class Gateway extends EventEmitter {
         this.users = this.users.filter((user) => user.ws !== ws);
     }
 
-    private async heartbeat(sequence: number | null, requested = false) {
+    private async heartbeat(sequence: number, requested = false) {
         if (!this.isAck && !requested) {
             return this.destroy({ reason: 'Zombie connection', recover: WebSocketShardDestroyRecovery.Resume });
         }
@@ -171,9 +196,9 @@ class Gateway extends EventEmitter {
             throw new Error('GATEWAY_URL is not defined in the environment variables');
         }
 
-        this.socket = new WebSocket(process.env.GATEWAY_URL);
+        this.socket = new WebSocket(new URL(process.env.GATEWAY_URL));
 
-        Logger.info('Connecting to Discord Gateway...', [Gateway.name, this.connect.name]);
+        Logger.info(`Connecting to Discord Gateway (${process.env.GATEWAY_URL}) ..`, [Gateway.name, this.connect.name]);
         this.#status = WebSocketShardStatus.Connecting;
 
         return new Promise((resolve) => {
@@ -190,6 +215,8 @@ class Gateway extends EventEmitter {
                 Logger.info("WebSocket it's on CONNECTED state.", [Gateway.name, this.connect.name]);
                 await Util.webhookLog({ embeds: [embed] });
 
+                this.connectionAttempts = 0;
+
                 resolve(this.socket);
             });
 
@@ -200,15 +227,16 @@ class Gateway extends EventEmitter {
     };
 
     // resume connection from gateway
-    private resumeConnection(token: Snowflake): Promise<WebSocket | null> {
-        this.socket = new WebSocket(`${this.resume_url}?v=10&encoding=json`);
+    private resumeConnection(resume_url: URL, sequence: number, session: string, token: Snowflake): Promise<WebSocket | null> {
+        this.socket = new WebSocket(resume_url);
 
-        Logger.info('Reconnecting to Discord Gateway...', [Gateway.name, this.resumeConnection.name]);
+        Logger.info(`Reconnecting to Discord Gateway (${resume_url})...`, [Gateway.name, this.resumeConnection.name]);
 
         return new Promise((resolve) => {
             this.socket?.on('open', async () => {
                 // resuming connection with the gateway
-                await this.resume(token);
+                await this.resume(resume_url, sequence, session, token);
+                await this.identify(token);
 
                 const embed = new EmbedBuilder()
                     .setColor(0x1ed760)
@@ -219,6 +247,8 @@ class Gateway extends EventEmitter {
                 Logger.info("WebSocket it's on CONNECTED state.", [Gateway.name, this.resumeConnection.name]);
                 await Util.webhookLog({ embeds: [embed] });
 
+                this.connectionAttempts = 0;
+
                 resolve(this.socket);
             });
 
@@ -228,12 +258,29 @@ class Gateway extends EventEmitter {
         });
     }
 
+    private normalizeResumeUrl(url: string): URL {
+        try {
+            const resumeUrl = new URL(url);
+
+            resumeUrl.protocol ||= 'wss:';
+            resumeUrl.searchParams.set('v', resumeUrl.searchParams.get('v') ?? '10');
+            resumeUrl.searchParams.set('encoding', resumeUrl.searchParams.get('encoding') ?? 'json');
+
+            return resumeUrl;
+        } catch {
+            Logger.error(`Failed to parse resume URL: ${url}`, [Gateway.name, this.normalizeResumeUrl.name]);
+            return this.resume_url!;
+        }
+    }
+
     private async onMessage(token: Snowflake, data: string): Promise<void> {
         const payload = this.unpackMessage(data, false);
 
         if (!payload) return;
 
         const { op, t, d, s } = payload;
+
+        this.sequence = s;
 
         switch (op) {
             case GatewayOpcodes.Dispatch: {
@@ -256,7 +303,7 @@ class Gateway extends EventEmitter {
 
                         await Util.webhookLog({ embeds: [embed] });
 
-                        this.resume_url = resume_gateway_url;
+                        this.resume_url = this.normalizeResumeUrl(resume_gateway_url);
                         this.session = session_id;
 
                         break;
@@ -310,14 +357,12 @@ class Gateway extends EventEmitter {
                                     const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
 
                                     if (data && Object.keys(data).length) {
-                                        this.emit(SpotifyEvents.GetTrack, data);
-                                        this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data });
+                                        this.emitAndBroadcast(SpotifyEvents.GetTrack, data);
                                     }
                                 }
                             }
 
-                            this.emit(GatewayDispatchEvents.GuildMembersChunk, this.member);
-                            this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.GuildMembersChunk, d: this.member });
+                            this.emitAndBroadcast(GatewayDispatchEvents.GuildMembersChunk, this.member);
                         };
 
                         break;
@@ -338,14 +383,12 @@ class Gateway extends EventEmitter {
                                     const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
 
                                     if (data && Object.keys(data).length) {
-                                        this.emit(SpotifyEvents.GetTrack, data);
-                                        this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: SpotifyEvents.GetTrack, d: data });
+                                        this.emitAndBroadcast(SpotifyEvents.GetTrack, data);
                                     }
                                 }
                             }
 
-                            this.emit(GatewayDispatchEvents.PresenceUpdate, this.member);
-                            this.sendUserGatewayEvents({ op: GatewayOpcodes.Dispatch, t: GatewayDispatchEvents.PresenceUpdate, d: this.member });
+                            this.emitAndBroadcast(GatewayDispatchEvents.PresenceUpdate, this.member);
                         }
 
                         break;
@@ -356,7 +399,7 @@ class Gateway extends EventEmitter {
             }
 
             case GatewayOpcodes.Heartbeat: {
-                await this.heartbeat(s, true);
+                if (this.sequence) await this.heartbeat(this.sequence, true);
 
                 break;
             }
@@ -379,10 +422,18 @@ class Gateway extends EventEmitter {
             }
 
             case GatewayOpcodes.Reconnect: {
-                await this.destroy({
-                    reason: 'Told to reconnect by Discord',
-                    recover: WebSocketShardDestroyRecovery.Resume
-                });
+                try {
+                    await this.destroy({
+                        reason: 'Told to reconnect by Discord',
+                        recover: WebSocketShardDestroyRecovery.Resume
+                    });
+
+                    Logger.debug(['Received reconnect opcode, destroying connection'], [Gateway.name, this.onMessage.name]);
+
+                    await this.handleReconnect(token, this.resume_url, s ?? 0, this.session);
+                } catch (error) {
+                    Logger.error(`Failed to handle reconnect: ${error}`, [Gateway.name, this.onMessage.name]);
+                }
 
                 break;
             }
@@ -406,10 +457,10 @@ class Gateway extends EventEmitter {
                     this.initialHeartbeatTimeoutController = null;
                 }
 
-                await this.heartbeat(s);
+                await this.heartbeat(this.sequence ?? 0);
 
                 Logger.debug([`First heartbeat sent, starting to beat every ${d.heartbeat_interval}ms`], [Gateway.name, this.onMessage.name]);
-                this.heartbeatInterval = setInterval(() => this.heartbeat(s), d.heartbeat_interval);
+                this.heartbeatInterval = setInterval(() => this.heartbeat(this.sequence ?? 0), d.heartbeat_interval);
 
                 break;
             };
@@ -423,23 +474,38 @@ class Gateway extends EventEmitter {
 
                 await Util.webhookLog({ embeds: [embed] });
 
-                this.debug([`Invalid session; will attempt to resume: ${payload.d.toString()}`]);
-                Logger.warn(`Invalid session; will attempt to resume: ${payload.d.toString()}`, [Gateway.name, this.onMessage.name]);
+                this.debug([`Invalid session; will attempt to resume: ${d.toString()}`]);
+                Logger.warn(`Invalid session; will attempt to resume: ${d.toString()}`, [Gateway.name, this.onMessage.name]);
 
-                if (payload.d) {
-                    await this.resume(token);
-                } else {
-                    await this.destroy({
-                        reason: 'Invalid session',
-                        recover: WebSocketShardDestroyRecovery.Reconnect
-                    });
-                }
-
+                await this.handleInvalidSession(d, token);
+                
                 break;
             }
         }
+    }
 
-        this.sequence = s;
+    private async handleInvalidSession(resumable: boolean, token: Snowflake): Promise<void> {
+        Logger.warn(`Invalid session; resumable: ${resumable}`, [Gateway.name, this.handleInvalidSession.name]);
+        
+        if (!resumable) {
+            this.session = undefined;
+            this.sequence = undefined;
+            this.resume_url = undefined;
+        }
+    
+        const delay = Math.floor(Math.random() * 4000) + 1000;
+        await sleep(delay);
+    
+        if (resumable && this.session && this.sequence !== undefined && this.resume_url) {
+            await this.establishConnection(token);
+        } else {
+            await this.destroy({
+                reason: 'Invalid session (non-resumable)',
+                recover: WebSocketShardDestroyRecovery.Reconnect
+            });
+            
+            await this.connect(token);
+        }
     }
 
     private onError(error: Error) {
@@ -582,6 +648,12 @@ class Gateway extends EventEmitter {
             return;
         }
 
+        if (options.recover !== WebSocketShardDestroyRecovery.Resume) {
+            this.session = undefined;
+            this.sequence = undefined;
+            this.resume_url = undefined;
+        }
+
         options.code ??= options.recover === WebSocketShardDestroyRecovery.Resume ? CloseCodes.Resuming : CloseCodes.Normal;
 
         this.debug([
@@ -655,14 +727,48 @@ class Gateway extends EventEmitter {
         this.#status = WebSocketShardStatus.Idle;
     }
 
+    private async handleReconnect(token: Snowflake, resume_url?: URL, sequence?: number, session?: string): Promise<void> {
+        if (this.isReconnecting) return;
+
+        this.isReconnecting = true;
+        this.#status = WebSocketShardStatus.Connecting;
+
+        try {
+            await this.establishConnection(token, resume_url, sequence, session);
+
+            while (this.messageQueue.length > 0 && this.socket?.readyState === WebSocket.OPEN) {
+                const message = this.messageQueue.shift();
+
+                if (message) {
+                    try {
+                        await this.send(message);
+                    } catch (error) {
+                        Logger.error(`Failed to send queued message: ${error}`, [Gateway.name, this.handleReconnect.name]);
+                        this.messageQueue.unshift(message);
+                        break;
+                    }
+                }
+            }
+        } catch (error) {
+            Logger.error(`Reconnection failed: ${error}`, [Gateway.name, this.handleReconnect.name]);
+            await sleep(this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay));
+            await this.handleReconnect(token);
+        } finally {
+            this.isReconnecting = false;
+        }
+    }
+
     public async send(payload: GatewaySendPayload): Promise<void> {
         if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-            throw new Error("WebSocketShard wasn't connected or not opened");
-        }
+            if (ImportantGatewayOpcodes.has(payload.op)) {
+                if (!this.isReconnecting) {
+                    await this.handleReconnect(this.token);
+                }
 
-        if (ImportantGatewayOpcodes.has(payload.op)) {
-            this.socket.send(JSON.stringify(payload));
-            return;
+                this.messageQueue.push(payload);
+                return;
+            }
+            throw new Error("WebSocketShard wasn't connected or not opened");
         }
 
         const now = Date.now();
@@ -701,23 +807,43 @@ class Gateway extends EventEmitter {
         this.emit(WebSocketShardEvents.Debug, messages.join('\n\t'));
     }
 
-    private sendUserGatewayEvents(payload: WebsocketReceivePayload) {
+    private emitAndBroadcast(event: WebSocketReceivePayloadEvents, data: SpotifyTrackResponse | MemberPresence | GatewayRequestGuildMembersDataWithUserIds | null): void {
+        this.emit(event, data);
+        this.broadcastToUsers({ op: GatewayOpcodes.Dispatch, t: event, d: data });
+    }
+
+    private broadcastToUsers(payload: WebsocketReceivePayload): void {
         const data = Util.payloadData(payload);
 
-        for (const user of this.users) {
-            if (user.ws.readyState === WebSocket.OPEN) {
-                try {
-                    user.ws.send(data);
-                    this.gatewayGuildMemberData.set(user.id, data);
-                    Logger.info(`[${user.id}] - [${user.ip}]: sent data`, [Gateway.name, this.sendUserGatewayEvents.name]);
-                } catch (error) {
-                    Logger.error(`Failed to send data to user ${user.id}: ${(error as Error).message}`, [Gateway.name, this.sendUserGatewayEvents.name]);
-                }
-            } else {
-                Logger.warn(`WebSocket for user ${user.id} is not open. Skipping.`, [Gateway.name, this.sendUserGatewayEvents.name]);
+        this.users.forEach(user => {
+            if (user.ws.readyState !== WebSocket.OPEN) {
+                Logger.warn(`WS not open for user ${user.id}`, [Gateway.name, this.broadcastToUsers.name]);
+                return;
             }
-        }
+
+            try {
+                user.ws.send(data);
+                this.gatewayGuildMemberData.set(user.id, data);
+                Logger.info(`Data sent to user ${user.id}`, [Gateway.name, this.broadcastToUsers.name]);
+            } catch (error) {
+                Logger.error(`Failed to send to user ${user.id}: ${error}`, [Gateway.name, this.broadcastToUsers.name]);
+            }
+        });
     }
+
+    // public simulateGatewayReconnect(): void {
+    //     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+    //         Logger.warn('No active connection to request reconnect', [Gateway.name, this.simulateGatewayReconnect.name]);
+    //         return;
+    //     }
+    
+    //     Logger.warn('Simulating gateway reconnect request...', [Gateway.name, this.simulateGatewayReconnect.name]);
+
+    //     this.socket.emit('message', (JSON.stringify({
+    //         op: GatewayOpcodes.Reconnect,
+    //         d: null
+    //     })));
+    // }
 }
 
 export {
