@@ -1,6 +1,5 @@
 import express, { Router } from 'express';
 import { Client } from '../client';
-import cors from 'cors';
 import { join } from 'node:path';
 import { RouteStructure } from '../structures/routeStructure';
 import { AuthMiddleware, InfoMiddleware, RateLimitMiddleware } from './middlewares/index';
@@ -23,7 +22,6 @@ class Server extends Client {
         this.app.set('view engine', 'html');
         this.app.set('trust proxy', true);
         this.app.use(express.static(join(__dirname, '../public')));
-        this.app.use(cors());
         this.app.use(express.json());
         this.app.use(express.urlencoded({ extended: true }));
         this.app.use(this.initRoutes());
