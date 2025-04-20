@@ -28,9 +28,21 @@ class DiscordProfileController extends RouteStructure {
                         data,
                         member
                     });
+                    const resLength = Buffer.byteLength(svg.toString());
 
-                    return void res.status(200)
+                    if (Buffer.byteLength(svg.toString()) > 3000000) {
+                        return void res.status(413).json(new JSONResponse(413, 'SVG too large').toJSON());
+                    }
+
+                    return void res
+                        .status(200)
                         .header('Content-Type', 'image/svg+xml')
+                        .header('Content-Length', resLength.toString())
+                        .header('Cache-Control', "no-cache, no-store, must-revalidate, max-age=1")
+                        .header("Pragma", "no-cache")
+                        .header("Expires", "0")
+                        .header('content-security-policy', "default-src 'none'; img-src * data:; style-src 'unsafe-inline'")
+                        .header('CDN-Cache-Control', 'no-store')
                         .send(svg);
                 } else {
                     return void res.status(404).json(new JSONResponse(404, 'User not found').toJSON());

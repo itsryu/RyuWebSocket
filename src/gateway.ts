@@ -1,10 +1,10 @@
 import WebSocket, { type Data } from 'ws';
-import { ClientOptions, CloseCodes, MemberPresence, SendRateLimitState, SpotifyTrackResponse, UserProfileResponse, WebsocketOpcodes, WebsocketReceivePayload, WebSocketReceivePayloadEvents, WebSocketShardDestroyOptions, WebSocketShardDestroyRecovery, WebSocketShardEvents, WebSocketShardStatus, WebSocketState, WebSocketUser } from './types';
+import { ClientOptions, CloseCodes, MemberPresence, SendRateLimitState, SpotifyTrackResponse, UserProfileResponse, WebsocketOpcodes, WebsocketReceivePayload, WebSocketReceivePayloadEvents, WebSocketShardDestroyOptions, WebSocketShardDestroyRecovery, WebSocketShardEvents, WebSocketShardStatus, WebSocketState, WebSocketUser } from './@types';
 import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewaySendPayload, GatewayCloseCodes, GatewayRequestGuildMembersDataWithUserIds } from 'discord-api-types/v10';
 import EventEmitter from 'node:events';
 import { EmbedBuilder } from './structures';
 import axios from 'axios';
-import { SpotifyEvents } from './types';
+import { SpotifyEvents } from './@types';
 import { SpotifyGetTrackController } from './api/routes';
 import { Logger } from './utils/logger';
 import { setTimeout as sleep } from 'node:timers/promises';

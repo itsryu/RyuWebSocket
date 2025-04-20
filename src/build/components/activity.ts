@@ -1,5 +1,5 @@
 import { ActivityType } from "discord-api-types/v10";
-import { MemberPresence } from "../../types";
+import { MemberPresence } from "../../@types";
 import { ImageUtils } from "../../utils/util";
 
 export async function renderActivity(member?: MemberPresence): Promise<string> {
@@ -22,11 +22,11 @@ export async function renderActivity(member?: MemberPresence): Promise<string> {
     let largeImage = '';
     if (activity.assets?.large_image) {
         if (activity.name.toLowerCase() === 'spotify' && activity.assets.large_image.startsWith('spotify:')) {
-            largeImage = await ImageUtils.fetchImageToBase64(`https://i.scdn.co/image/${activity.assets.large_image.split(':')[1]}`);
+            largeImage = await ImageUtils.cachedFetchImageToBase64(`https://i.scdn.co/image/${activity.assets.large_image.split(':')[1]}`);
         } else if (activity.assets.large_image.startsWith('mp:external')) {
-            largeImage = await ImageUtils.fetchImageToBase64(`https://media.discordapp.net/${activity.assets.large_image.replace('mp:', '')}`);
+            largeImage = await ImageUtils.cachedFetchImageToBase64(`https://media.discordapp.net/${activity.assets.large_image.replace('mp:', '')}`);
         } else {
-            largeImage = await ImageUtils.fetchImageToBase64(`https://cdn.discordapp.com/app-assets/${activity.application_id}/${activity.assets.large_image}.png?size=4096`);
+            largeImage = await ImageUtils.cachedFetchImageToBase64(`https://cdn.discordapp.com/app-assets/${activity.application_id}/${activity.assets.large_image}.png?size=4096`);
         }
     }
 
@@ -34,13 +34,15 @@ export async function renderActivity(member?: MemberPresence): Promise<string> {
     let smallImage = '';
     if (activity.assets?.small_image) {
         if (activity.assets.small_image.startsWith('mp:external')) {
-            smallImage = await ImageUtils.fetchImageToBase64(`https://media.discordapp.net/${activity.assets.small_image.replace('mp:', '')}`);
+            smallImage = await ImageUtils.cachedFetchImageToBase64(`https://media.discordapp.net/${activity.assets.small_image.replace('mp:', '')}`);
         } else {
-            smallImage = await ImageUtils.fetchImageToBase64(`https://cdn.discordapp.com/app-assets/${activity.application_id}/${activity.assets.small_image}.png?size=4096`);
+            smallImage = await ImageUtils.cachedFetchImageToBase64(`https://cdn.discordapp.com/app-assets/${activity.application_id}/${activity.assets.small_image}.png?size=4096`);
         }
     }
 
-    const elapsedTime = activity.timestamps?.start ? getElapsedTime(activity.timestamps.start) : null;
+    const now = Date.now();
+    const elapsedMs = Math.max(0, now - (activity.timestamps?.start ?? 0));
+    const elapsedTime = activity.timestamps?.start ? formatTime(elapsedMs) : null;
 
     return `
     <div style="display:flex;flex-direction:row;height:120px;margin-left:15px;font-size:0.75rem;padding-top:18px">
@@ -71,10 +73,29 @@ function escapeXml(unsafe: string): string {
     } as Record<string, string>)[c]);
 }
 
-function getElapsedTime(startTimestamp: number): string {
-    const elapsedMs = Date.now() - startTimestamp;
-    const h = Math.floor(elapsedMs / 3600000);
-    const m = Math.floor((elapsedMs % 3600000) / 60000);
-    const s = Math.floor((elapsedMs % 60000) / 1000);
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+interface FormatTimeOptions {
+    padMinutes?: boolean;
+    padSeconds?: boolean;
+}
+
+const formatTime = (ms: number, options: FormatTimeOptions = {}): string => {
+    const { padMinutes = true, padSeconds = true } = options;
+    const totalSeconds = Math.floor(ms / 1000);
+    const seconds = totalSeconds % 60;
+    const totalMinutes = Math.floor(totalSeconds / 60);
+
+    if (totalMinutes < 60) {
+        const formattedMinutes = padMinutes ? String(totalMinutes).padStart(2, '0') : String(totalMinutes);
+        const formattedSeconds = padSeconds ? String(seconds).padStart(2, '0') : String(seconds);
+
+        return `${formattedMinutes}:${formattedSeconds}`;
+    } else {
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        const formattedHours = String(hours).padStart(2, '0');
+        const formattedMinutes = padMinutes ? String(minutes).padStart(2, '0') : String(minutes);
+        const formattedSeconds = padSeconds ? String(seconds).padStart(2, '0') : String(seconds);
+        
+        return `${formattedHours}:${formattedMinutes}:${formattedSeconds}`;
+    }
 }

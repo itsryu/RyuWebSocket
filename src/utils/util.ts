@@ -2,8 +2,8 @@ import { RESTPostAPIWebhookWithTokenJSONBody, Snowflake } from 'discord-api-type
 import { get } from 'https';
 import axios from 'axios';
 import { Logger } from './logger';
-import { UserProfileResponse, UserResponse } from '../types';
-import { SendRateLimitState, WebsocketReceivePayload } from '../types/websocketTypes';
+import { UserProfileResponse, UserResponse } from '../@types';
+import { SendRateLimitState, WebsocketReceivePayload } from '../@types/websocketTypes';
 
 class Util {
     public static async getDiscordUser(id: Snowflake): Promise<UserResponse | null> {
@@ -183,7 +183,7 @@ class ImageUtils {
             case 'jpeg': return 'image/jpeg';
             case 'gif': return 'image/gif';
             case 'webp': return 'image/webp';
-            default: return 'image/png'; // Default seguro
+            default: return 'image/png';
         }
     }
 

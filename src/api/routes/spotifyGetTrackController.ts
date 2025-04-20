@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { JSONResponse, RouteStructure } from '../../structures';
-import { SpotifyTokenResponse, SpotifyTrackResponse } from '../../types/spotifyInterfaces';
+import { SpotifyTokenResponse, SpotifyTrackResponse } from '../../@types/spotifyInterfaces';
 import axios from 'axios';
 import { Logger } from '../../utils/logger';
 

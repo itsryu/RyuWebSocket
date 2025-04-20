@@ -5,7 +5,7 @@ import { Logger } from './utils/logger';
 import { Connection } from './connection';
 import { Gateway } from './gateway';
 import { GatewayIntentBits } from 'discord-api-types/v10';
-import { MemberPresence } from './types';
+import { MemberPresence } from './@types';
 
 class Client {
     private port: string = process.env.PORT;

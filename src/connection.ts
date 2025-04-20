@@ -4,7 +4,7 @@ import { RawData, WebSocket, WebSocketServer } from 'ws';
 import { Util } from './utils/util';
 import { EmbedBuilder } from './structures';
 import { Logger } from './utils/logger';
-import { WebsocketOpcodes, WebsocketReceivePayload, WebSocketUser, WebSocketState } from './types/websocketTypes';
+import { WebsocketOpcodes, WebsocketReceivePayload, WebSocketUser, WebSocketState } from './@types/websocketTypes';
 import { Gateway } from './gateway';
 import { Info } from './utils/info';
 

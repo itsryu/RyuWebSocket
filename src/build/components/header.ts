@@ -1,15 +1,15 @@
 import { ActivityType } from "discord-api-types/v10";
-import { MemberPresence, StatusColors, UserProfileResponse } from "../../types";
+import { MemberPresence, StatusColors, UserProfileResponse } from "../../@types";
 import { ImageUtils } from "../../utils/util";
 
 export async function renderHeader(data: UserProfileResponse, member?: MemberPresence): Promise<string> {
     const username = data.user.global_name ?? data.user.username;
     const avatar = data.user.avatar
-        ? await ImageUtils.fetchImageToBase64(`${process.env.DISCORD_CDN}/avatars/${data.user.id}/${data.user.avatar}.png?size=4096`)
-        : await ImageUtils.fetchImageToBase64(`${process.env.DISCORD_CDN}/embed/avatars/0.png`);
+        ? await ImageUtils.cachedFetchImageToBase64(`${process.env.DISCORD_CDN}/avatars/${data.user.id}/${data.user.avatar}.png?size=4096`)
+        : await ImageUtils.cachedFetchImageToBase64(`${process.env.DISCORD_CDN}/embed/avatars/0.png`);
 
     const avatarDecoration = data.user.avatar_decoration_data?.asset
-        ? await ImageUtils.fetchImageToBase64(`${process.env.DISCORD_CDN}/avatar-decoration-presets/${data.user.avatar_decoration_data.asset}.png?size=512`)
+        ? await ImageUtils.cachedFetchImageToBase64(`${process.env.DISCORD_CDN}/avatar-decoration-presets/${data.user.avatar_decoration_data.asset}.png?size=512`)
         : null;
 
     const customStatus = member?.activities?.find(a => a.type === ActivityType.Custom)?.state || null;
@@ -17,10 +17,10 @@ export async function renderHeader(data: UserProfileResponse, member?: MemberPre
 
     const clan = data.user.clan;
     const clanBadge = clan
-        ? await ImageUtils.fetchImageToBase64(`${process.env.DISCORD_CDN}/clan-badges/${clan.identity_guild_id}/${clan.badge}.png?size=512`)
+        ? await ImageUtils.cachedFetchImageToBase64(`${process.env.DISCORD_CDN}/clan-badges/${clan.identity_guild_id}/${clan.badge}.png?size=512`)
         : null;
 
-    const badges = await Promise.all(data.badges.map(async (badge) => await ImageUtils.fetchImageToBase64(`${process.env.DISCORD_CDN}/badge-icons/${badge.icon}.png`)));
+    const badges = await Promise.all(data.badges.map(async (badge) => await ImageUtils.cachedFetchImageToBase64(`${process.env.DISCORD_CDN}/badge-icons/${badge.icon}.png`)));
 
     return `
     <div style="width:400px;height:100px;inset:0;display:flex;flex-direction:row;padding-bottom:5px;border-bottom:solid 0.5px hsl(0, 0%, 100%, 10%)">
@@ -38,7 +38,7 @@ export async function renderHeader(data: UserProfileResponse, member?: MemberPre
                     <p style="margin-bottom:1.1rem;white-space:nowrap">${escapeXml(clan.tag)}</p>
                 </span>` : ''}
                 ${badges.map((badge) => `
-                    <img src="${badge}" style="width:auto;height:20px;position:relative;top:50%;transform:translate(0%, -50%);margin-right:4px" />
+                    <img src="${badge}" style="width:auto;height:20px;position:relative;top:50%;transform:translate(0%, -50%);margin-right:2px" />
                 `).join('')}
             </div>
             ${customStatus ? `

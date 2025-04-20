@@ -5,7 +5,7 @@ import { Logger } from '../../utils/logger';
 class HomeController extends RouteStructure {
     run = (_: Request, res: Response) => {
         try {
-            res.status(200).json(new JSONResponse(200, 'Hello, World!').toJSON());
+            res.status(200).json(new JSONResponse(200, 'Welcome to Ryu API!').toJSON());
         } catch (err) {
             Logger.error((err as Error).message, HomeController.name);
             Logger.warn((err as Error).stack, HomeController.name);

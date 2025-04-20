@@ -1,4 +1,4 @@
-import { MemberPresence, UserProfileResponse } from "../types";
+import { MemberPresence, UserProfileResponse } from "../@types";
 import { renderActivity } from "./components/activity";
 import { renderHeader } from "./components/header";
 
