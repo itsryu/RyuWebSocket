@@ -12,6 +12,11 @@ class DiscordProfileController extends RouteStructure {
         const data = await Util.getDiscordUserProfile(id);
         const isValidDiscordId = (id: string): boolean => /^\d{17,19}$/.test(id);
 
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Content-Type', 'image/svg+xml');
+
         try {
             if (isValidDiscordId(id)) {
                 if (data) {
