@@ -11,7 +11,8 @@
 		"npm": "^9 || >=10.0.0"
 	},
 	"scripts": {
-		"build": "yarn install && npx tsc --project tsconfig.json --pretty --noEmitOnError && echo Arquivos compilados com sucesso!",
+		"prebuild": "yarn install --frozen-lockfile --production=false",
+    	"build": "tsc --project tsconfig.json --pretty --noEmitOnError",
 		"clean-win": "rmdir /s /q dist",
 		"clean-lin": "rm -rf dist",
 		"start": "node dist/launcher.js",

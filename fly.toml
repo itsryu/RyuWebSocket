@@ -1,5 +1,4 @@
 app = "ryuwebsocket"
-primary_region = "gru"  
 
 kill_signal = "SIGINT"
 kill_timeout = 5
@@ -8,7 +7,7 @@ kill_timeout = 5
   builder = "heroku/builder:22"
   buildpacks = ["heroku/nodejs"]
   [build.args]
-    NODE_ENV = "production"
+    NODE_ENV = ""
 
 [env]
   PORT = "3000"  
@@ -22,7 +21,6 @@ kill_timeout = 5
   auto_stop_machines = "off"
   auto_start_machines = true
 
-  
   [http_service.http_options]
     compress = true
     [http_service.http_options.response_headers]
