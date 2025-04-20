@@ -1,3 +1,4 @@
-export * from './discordInterfaces';
+export * from './discordTypes';
 export * from './spotifyInterfaces';
 export * from './httpsInterfaces';
+export * from './websocketTypes';

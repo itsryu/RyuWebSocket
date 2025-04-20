@@ -1,20 +1,21 @@
 import { RESTPostAPIWebhookWithTokenJSONBody, Snowflake } from 'discord-api-types/v10';
-import { DiscordUser, SendRateLimitState, WebsocketReceivePayload } from '../types/discordInterfaces';
 import { get } from 'https';
 import axios from 'axios';
 import { Logger } from './logger';
+import { UserProfileResponse, UserResponse } from '../types';
+import { SendRateLimitState, WebsocketReceivePayload } from '../types/websocketTypes';
 
 class Util {
-    public static async getDiscordUser(id: Snowflake): Promise<DiscordUser | null> {
-        const fetchUser = async (resolve: (V: DiscordUser | null) => void) => {
+    public static async getDiscordUser(id: Snowflake): Promise<UserResponse | null> {
+        const fetchUser = async (resolve: (V: UserResponse | null) => void) => {
             try {
-                const data: DiscordUser | undefined = await axios.get(`https://discord.com/api/v10/users/${id}`, {
+                const data: UserResponse | undefined = await axios.get(`https://discord.com/api/v10/users/${id}`, {
                     method: 'GET',
                     headers: {
                         Authorization: 'Bot ' + process.env.CLIENT_TOKEN
                     }
                 })
-                    .then((res) => res.data as DiscordUser)
+                    .then((res) => res.data as UserResponse)
                     .catch(() => undefined);
 
                 if (data) {
@@ -30,19 +31,19 @@ class Util {
             }
         };
 
-        return await new Promise<DiscordUser | null>(fetchUser);
+        return await new Promise<UserResponse | null>(fetchUser);
     }
 
-    public static async getDiscordUserProfile(id: Snowflake): Promise<DiscordUser | null> {
-        const fetchUser = async (resolve: (V: DiscordUser | null) => void) => {
+    public static async getDiscordUserProfile(id: Snowflake): Promise<UserProfileResponse | null> {
+        const fetchUser = async (resolve: (V: UserProfileResponse | null) => void) => {
             try {
-                const data: DiscordUser | undefined = await axios.get(`https://discord.com/api/v10/users/${id}/profile`, {
+                const data: UserProfileResponse | undefined = await axios.get(`https://discord.com/api/v10/users/${id}/profile`, {
                     method: 'GET',
                     headers: {
                         Authorization: process.env.USER_TOKEN
                     }
                 })
-                    .then((res) => res.data as DiscordUser)
+                    .then((res) => res.data as UserProfileResponse)
                     .catch(() => undefined);
 
                 if (data) {
@@ -58,7 +59,7 @@ class Util {
             }
         };
 
-        return await new Promise<DiscordUser | null>(fetchUser);
+        return await new Promise<UserProfileResponse | null>(fetchUser);
     }
 
     public static async discordAvatarConstructor(id: string, avatar: string): Promise<string> {

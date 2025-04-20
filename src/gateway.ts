@@ -1,5 +1,5 @@
 import WebSocket, { type Data } from 'ws';
-import { ClientOptions, CloseCodes, DiscordUser, MemberPresence, SendRateLimitState, SpotifyTrackResponse, WebsocketReceivePayload, WebSocketReceivePayloadEvents, WebSocketShardDestroyOptions, WebSocketShardDestroyRecovery, WebSocketShardEvents, WebSocketShardStatus, WebSocketUser } from './types';
+import { ClientOptions, CloseCodes, MemberPresence, SendRateLimitState, SpotifyTrackResponse, UserProfileResponse, WebsocketOpcodes, WebsocketReceivePayload, WebSocketReceivePayloadEvents, WebSocketShardDestroyOptions, WebSocketShardDestroyRecovery, WebSocketShardEvents, WebSocketShardStatus, WebSocketState, WebSocketUser } from './types';
 import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewaySendPayload, GatewayCloseCodes, GatewayRequestGuildMembersDataWithUserIds } from 'discord-api-types/v10';
 import EventEmitter from 'node:events';
 import { EmbedBuilder } from './structures';
@@ -29,13 +29,14 @@ class Gateway extends EventEmitter {
     private sendRateLimitState: SendRateLimitState = Util.getInitialSendRateLimitState();
     private failedToConnectDueToNetworkError = false;
     private users: WebSocketUser[] = [];
-    private gatewayGuildMemberData: Map<string, string>;
+    private gatewayGuildMemberData: Map<string, MemberPresence>;
+    private gatewayUserTimeout: Map<string, number> = new Map<string, number>();
     private connectionAttempts = 0;
     private maxConnectionAttempts = 10;
     private reconnectDelay = 1000;
     private maxReconnectDelay = 60000;
 
-    constructor(options: ClientOptions, gatewayGuildMemberData: Map<string, string>) {
+    constructor(options: ClientOptions, gatewayGuildMemberData: Map<string, MemberPresence>) {
         super({ captureRejections: true });
 
         this.options = options;
@@ -312,6 +313,23 @@ class Gateway extends EventEmitter {
                         break;
                     }
 
+                    case GatewayDispatchEvents.GuildCreate: {
+                        const { presences, members } = d;
+
+                        if(members && presences) {
+                            presences.forEach((presence) => {
+                                const userId = presence.user.id;
+
+                                if (userId === process.env.USER_ID) {
+                                    this.member = { ...this.member, presences: [presence], members };
+                                    this.gatewayGuildMemberData.set(userId, this.member);
+                                }
+                            });
+                        }
+
+                        break;
+                    }
+
                     // message create event
                     case GatewayDispatchEvents.MessageCreate: {
                         this.emit(GatewayDispatchEvents.MessageCreate, d);
@@ -323,14 +341,29 @@ class Gateway extends EventEmitter {
                     case GatewayDispatchEvents.GuildMembersChunk: {
                         const { members, presences, guild_id } = d;
 
-                        if (Object.keys(d).length && members.length && members[0].user?.id === process.env.USER_ID) {
-                            const data: DiscordUser | undefined = await axios.get((process.env.STATE == 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/profile/' + members[0].user?.id, {
+                        if (Object.keys(d).length && members.length) {
+                            const now = Date.now();
+                            const userId = members[0].user?.id;
+                            const lastRequestTime = this.gatewayUserTimeout.get(userId);
+
+                            if (lastRequestTime && now - lastRequestTime < 10000) {
+                                Logger.warn(`Rate limit exceeded for user ${userId}`, [Gateway.name, this.onMessage.name]);
+
+                                return this.broadcastToUser(userId, {
+                                    op: WebsocketOpcodes.RateLimited,
+                                    t: WebSocketState.RateLimited
+                                });
+                            }
+
+                            this.gatewayUserTimeout.set(userId, now);
+
+                            const data: UserProfileResponse | undefined = await axios.get((process.env.STATE == 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/profile/' + members[0].user?.id, {
                                 method: 'GET',
                                 headers: {
                                     'Authorization': 'Bearer ' + process.env.AUTH_KEY
                                 }
                             })
-                                .then((res) => res.data as DiscordUser)
+                                .then((res) => res.data as UserProfileResponse)
                                 .catch(() => undefined);
 
                             this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
@@ -343,12 +376,13 @@ class Gateway extends EventEmitter {
                                     const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
 
                                     if (data && Object.keys(data).length) {
-                                        this.emitAndBroadcast(SpotifyEvents.GetTrack, data);
+                                        this.emitAndBroadcastToUser(userId, SpotifyEvents.GetTrack, data);
                                     }
                                 }
                             }
 
-                            this.emitAndBroadcast(GatewayDispatchEvents.GuildMembersChunk, this.member);
+                            this.emitAndBroadcastToUser(userId, GatewayDispatchEvents.GuildMembersChunk, this.member);
+                            this.gatewayGuildMemberData.set(userId, this.member);
                         };
 
                         break;
@@ -357,8 +391,9 @@ class Gateway extends EventEmitter {
                     // presence update event
                     case GatewayDispatchEvents.PresenceUpdate: {
                         const { user, activities, status, guild_id } = d;
+                        const userId = user.id;
 
-                        if (Object.keys(d).length && user.id === process.env.USER_ID) {
+                        if (Object.keys(d).length) {
                             this.member = { ...this.member, user, activities, status, guild_id };
 
                             // get track event
@@ -369,12 +404,13 @@ class Gateway extends EventEmitter {
                                     const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
 
                                     if (data && Object.keys(data).length) {
-                                        this.emitAndBroadcast(SpotifyEvents.GetTrack, data);
+                                        this.emitAndBroadcastToUser(userId, SpotifyEvents.GetTrack, data);
                                     }
                                 }
                             }
 
-                            this.emitAndBroadcast(GatewayDispatchEvents.PresenceUpdate, this.member);
+                            this.emitAndBroadcastToUser(userId, GatewayDispatchEvents.PresenceUpdate, this.member);
+                            this.gatewayGuildMemberData.set(userId, this.member);
                         }
 
                         break;
@@ -719,53 +755,27 @@ class Gateway extends EventEmitter {
         this.users = this.users.filter((user) => user.ws !== ws);
     }
 
-    private emitAndBroadcast(event: WebSocketReceivePayloadEvents, data: SpotifyTrackResponse | MemberPresence | GatewayRequestGuildMembersDataWithUserIds | null): void {
+    private emitAndBroadcastToUser(userId: string, event: WebSocketReceivePayloadEvents, data: SpotifyTrackResponse | MemberPresence | GatewayRequestGuildMembersDataWithUserIds | null): void {
         this.emit(event, data);
-        this.broadcastToUsers({ op: GatewayOpcodes.Dispatch, t: event, d: data });
+        this.broadcastToUser(userId, { op: GatewayOpcodes.Dispatch, t: event, d: data });
     }
 
-    private broadcastToUsers(payload: WebsocketReceivePayload): void {
+    private broadcastToUser(userId: string, payload: WebsocketReceivePayload): void {
         const data = Util.payloadData(payload);
 
-        this.users.forEach(user => {
+        this.users.filter(user => user.id === userId).forEach(user => {
             if (user.ws.readyState !== WebSocket.OPEN) {
-                Logger.warn(`WS not open for user ${user.id}`, [Gateway.name, this.broadcastToUsers.name]);
+                Logger.warn(`WS not open for user ${user.id}`, [Gateway.name, this.broadcastToUser.name]);
                 return;
             }
 
             try {
                 user.ws.send(data);
-                this.gatewayGuildMemberData.set(user.id, data);
-                Logger.info(`Data sent to user ${user.id}`, [Gateway.name, this.broadcastToUsers.name]);
+                Logger.info(`Data sent to user ${user.id}`, [Gateway.name, this.broadcastToUser.name]);
             } catch (error) {
-                Logger.error(`Failed to send to user ${user.id}: ${error}`, [Gateway.name, this.broadcastToUsers.name]);
+                Logger.error(`Failed to send to user ${user.id}: ${error}`, [Gateway.name, this.broadcastToUser.name]);
             }
         });
-    }
-
-    public performGatewayReconnect(): void {
-        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-            Logger.warn('No active connection to request reconnect', [Gateway.name, this.performGatewayReconnect.name]);
-            return;
-        }
-
-        Logger.warn('Simulating gateway reconnect request...', [Gateway.name, this.performGatewayReconnect.name]);
-
-        this.socket.emit('message', (JSON.stringify({
-            op: GatewayOpcodes.Reconnect,
-            d: null
-        })));
-    }
-
-    public performWebsocketUnknownClosure(): void {
-        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-            Logger.warn('No active connection to request unknown closure', [Gateway.name, this.performWebsocketUnknownClosure.name]);
-            return;
-        }
-
-        Logger.warn('Simulating websocket unknown closure request...', [Gateway.name, this.performWebsocketUnknownClosure.name]);
-
-        this.socket.emit('close', 1006, 'Simulated unknown closure');
     }
 }
 

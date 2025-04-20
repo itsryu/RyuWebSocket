@@ -5,6 +5,7 @@ import { Logger } from './utils/logger';
 import { Connection } from './connection';
 import { Gateway } from './gateway';
 import { GatewayIntentBits } from 'discord-api-types/v10';
+import { MemberPresence } from './types';
 
 class Client {
     private port: string = process.env.PORT;
@@ -13,7 +14,7 @@ class Client {
     public wss: WebSocketServer;
     public connection: Connection | null = null;
     public gateway: Gateway | null = null;
-    public gatewayGuildMemberData: Map<string, string> = new Map<string, string>();
+    public gatewayGuildMemberData: Map<string, MemberPresence> = new Map<string, MemberPresence>();
 
     protected constructor() {
         this.server = createServer(this.app);
@@ -43,9 +44,6 @@ class Client {
             });
 
         if (this.gateway) {
-            setTimeout(() => this.gateway?.performGatewayReconnect(), 1000 * 60);
-            // setTimeout(() => this.gateway?.performWebsocketUnknownClosure(), 1000 * 60);
-
             this.connection = new Connection(this.wss, this.gateway);
         } else {
             Logger.error('Failed to initialize connection. Please check your gateway instance.', [Connection.name, this.constructor.name]);

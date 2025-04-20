@@ -3,7 +3,7 @@ import { Client } from '../client';
 import cors from 'cors';
 import { join } from 'node:path';
 import { RouteStructure } from '../structures/routeStructure';
-import { AuthMiddleware, InfoMiddleware } from './middlewares/index';
+import { AuthMiddleware, InfoMiddleware, RateLimitMiddleware } from './middlewares/index';
 import { NotFoundController, HomeController, SpotifyGetTrackController, DiscordGetUserController, HealthCheckController, DiscordProfileController, DiscordGetUserProfileController } from './routes/index';
 
 interface Route {
@@ -20,8 +20,7 @@ class Server extends Client {
     }
 
     private config(): void {
-        this.app.set('view engine', 'ejs');
-        this.app.set('views', join(__dirname, '../views'));
+        this.app.set('view engine', 'html');
         this.app.set('trust proxy', true);
         this.app.use(express.static(join(__dirname, '../public')));
         this.app.use(cors());
@@ -40,10 +39,10 @@ class Server extends Client {
 
             switch (method) {
                 case 'GET':
-                    router.get(path, new InfoMiddleware(this).run, new AuthMiddleware(this).run, handler.run.bind(handler));
+                    router.get(path, new RateLimitMiddleware(this).run, new InfoMiddleware(this).run, new AuthMiddleware(this).run, handler.run.bind(handler));
                     break;
                 case 'POST':
-                    router.post(path, new InfoMiddleware(this).run, new AuthMiddleware(this).run, handler.run.bind(handler));
+                    router.post(path, new RateLimitMiddleware(this).run, new InfoMiddleware(this).run, new AuthMiddleware(this).run, handler.run.bind(handler));
                     break;
                 default:
                     break;

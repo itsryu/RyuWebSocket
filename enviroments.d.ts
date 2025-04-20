@@ -12,6 +12,8 @@ declare global {
       readonly SPOTIFY_GET_TRACK_URI: string;
       readonly LOCAL_URL: string;
       readonly DOMAIN_URL: string;
+      readonly DISCORD_CDN: string;
+      readonly DISCORD_MEDIA: string;
       readonly SPOTIFY_SECRET: string;
       readonly SPOTIFY_ID: string;
       readonly GATEWAY_URL: string;
