@@ -17,11 +17,7 @@ class DiscordProfileController extends RouteStructure {
                 if (data) {
                     const member = this.client.gatewayGuildMemberData?.get(data.user.id);
 
-                    if (!member) {
-                        return void res.status(404).json(new JSONResponse(404, 'Guild member not found').toJSON());
-                    }
-
-                    const svg = SVGBuilder.createProfileCard({
+                    const svg = await SVGBuilder.createProfileCard({
                         backgroundColor,
                         borderRadius,
                         data,

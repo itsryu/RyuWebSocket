@@ -708,7 +708,8 @@ class Gateway extends EventEmitter {
 
     public async send(payload: GatewaySendPayload): Promise<void> {
         if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-            throw new Error("WebSocketShard wasn't connected or not opened");
+            Logger.warn('Socket is not open, cannot send payload', [Gateway.name, this.send.name]);
+            return;
         }
 
         const now = Date.now();

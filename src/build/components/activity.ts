@@ -1,20 +1,32 @@
 import { ActivityType } from "discord-api-types/v10";
 import { MemberPresence } from "../../types";
+import { ImageUtils } from "../../utils/util";
 
-export function renderActivity(member: MemberPresence): string {
-    const activities = member.activities?.filter(a => a.type !== ActivityType.Custom) || [];
+export async function renderActivity(member?: MemberPresence): Promise<string> {
+    const activities = member?.activities?.filter(a => a.type !== ActivityType.Custom) || [];
     const activity = activities[0];
-    if (!activity) return '';
+    
+    if (!activity) {
+        return `
+        <div style="display:flex;flex-direction:row;height:120px;margin-left:15px;font-size:0.75rem;padding-top:18px">
+            <div style="color:#999;margin-top:-6px;line-height:1;width:279px">
+                <p style="color:#fff;font-size:0.85rem;font-weight:bold;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;height:15px;margin:7px 0">
+                    No activity</p>
+                <p style="color:#ccc;overflow:hidden;white-space:nowrap;font-size:0.85rem;text-overflow:ellipsis;height:15px;margin:7px 0">
+                    User is currently not doing anything</p>
+            </div>
+        </div>`;
+    }
 
     // Large image
     let largeImage = '';
     if (activity.assets?.large_image) {
         if (activity.name.toLowerCase() === 'spotify' && activity.assets.large_image.startsWith('spotify:')) {
-            largeImage = `https://i.scdn.co/image/${activity.assets.large_image.split(':')[1]}`;
+            largeImage = await ImageUtils.fetchImageToBase64(`https://i.scdn.co/image/${activity.assets.large_image.split(':')[1]}`);
         } else if (activity.assets.large_image.startsWith('mp:external')) {
-            largeImage = `https://media.discordapp.net/${activity.assets.large_image.replace('mp:', '')}`;
+            largeImage = await ImageUtils.fetchImageToBase64(`https://media.discordapp.net/${activity.assets.large_image.replace('mp:', '')}`);
         } else {
-            largeImage = `https://cdn.discordapp.com/app-assets/${activity.application_id}/${activity.assets.large_image}.png?size=4096`;
+            largeImage = await ImageUtils.fetchImageToBase64(`https://cdn.discordapp.com/app-assets/${activity.application_id}/${activity.assets.large_image}.png?size=4096`);
         }
     }
 
@@ -22,9 +34,9 @@ export function renderActivity(member: MemberPresence): string {
     let smallImage = '';
     if (activity.assets?.small_image) {
         if (activity.assets.small_image.startsWith('mp:external')) {
-            smallImage = `https://media.discordapp.net/${activity.assets.small_image.replace('mp:', '')}`;
+            smallImage = await ImageUtils.fetchImageToBase64(`https://media.discordapp.net/${activity.assets.small_image.replace('mp:', '')}`);
         } else {
-            smallImage = `https://cdn.discordapp.com/app-assets/${activity.application_id}/${activity.assets.small_image}.png?size=4096`;
+            smallImage = await ImageUtils.fetchImageToBase64(`https://cdn.discordapp.com/app-assets/${activity.application_id}/${activity.assets.small_image}.png?size=4096`);
         }
     }
 

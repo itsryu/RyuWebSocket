@@ -35,3 +35,4 @@ kill_timeout = 5
 [env]
   NODE_ENV = "production"
   PORT = "8080"
+  APP_URL = "https://api.ryuzaki.cloud"

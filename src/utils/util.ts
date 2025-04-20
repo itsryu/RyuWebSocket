@@ -134,4 +134,86 @@ class Util {
     }
 }
 
-export { Util };
+type ImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+
+class ImageUtils {
+    public static async fetchImageToBase64(
+        url: string,
+        timeoutMs: number = 5000
+    ): Promise<string> {
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+            const response = await fetch(url, {
+                signal: controller.signal,
+                mode: 'cors',
+                cache: 'no-cache'
+            });
+
+            clearTimeout(timeout);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status} - ${response.statusText}`);
+            }
+
+            const mimeType = this.detectMimeType(response, url);
+
+            const buffer = await response.arrayBuffer();
+            const base64 = this.arrayBufferToBase64(buffer);
+
+            return `data:${mimeType};base64,${base64}`;
+        } catch (error) {
+            Logger.error(`Failed to convert image to Base64: ${error}`, [ImageUtils.name, this.fetchImageToBase64.name]);
+            throw new Error(`Image conversion failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private static detectMimeType(response: Response, fallbackUrl: string): ImageMimeType {
+        const contentType = response.headers.get('Content-Type');
+        
+        if (contentType?.startsWith('image/')) {
+            return contentType.split(';')[0] as ImageMimeType;
+        }
+
+        const extension = fallbackUrl.split('.').pop()?.toLowerCase();
+        switch (extension) {
+            case 'png': return 'image/png';
+            case 'jpg':
+            case 'jpeg': return 'image/jpeg';
+            case 'gif': return 'image/gif';
+            case 'webp': return 'image/webp';
+            default: return 'image/png'; // Default seguro
+        }
+    }
+
+    private static arrayBufferToBase64(buffer: ArrayBuffer): string {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        const chunkSize = 8192;
+
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.subarray(i, i + chunkSize);
+            binary += String.fromCharCode(...chunk);
+        }
+
+        return btoa(binary);
+    }
+
+    private static imageCache = new Map<string, string>();
+
+    public static async cachedFetchImageToBase64(
+        url: string,
+        timeoutMs: number = 5000
+    ): Promise<string> {
+        if (this.imageCache.has(url)) {
+            return this.imageCache.get(url)!;
+        }
+
+        const result = await this.fetchImageToBase64(url, timeoutMs);
+        this.imageCache.set(url, result);
+        return result;
+    }
+}
+
+export { Util, ImageUtils };
