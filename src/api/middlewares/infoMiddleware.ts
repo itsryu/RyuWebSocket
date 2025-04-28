@@ -7,7 +7,7 @@ import { Info } from '../../utils/info';
 class InfoMiddleware extends RouteStructure {
     run = async (req: Request, _: Response, next: NextFunction) => {
         try {
-            const info = Info.getClientInfo(req);
+            const info = await Info.getClientInfo(req);
             const message = Info.getClientInfoMessage(info);
 
             const embed = new EmbedBuilder()

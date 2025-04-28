@@ -115,6 +115,5 @@ export enum StatusColors {
     online = '#23a55a',
     dnd = '#f23f43',
     idle = '#f0b132',
-    invisible = '#82858f'
-  }
-  
+    offline = '#82838b'
+}

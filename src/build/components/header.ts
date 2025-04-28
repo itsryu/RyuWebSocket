@@ -1,6 +1,6 @@
 import { ActivityType } from "discord-api-types/v10";
 import { MemberPresence, StatusColors, UserProfileResponse } from "../../@types";
-import { ImageUtils } from "../../utils/util";
+import { ImageUtils, Util } from "../../utils/util";
 
 export async function renderHeader(data: UserProfileResponse, member?: MemberPresence): Promise<string> {
     const username = data.user.global_name ?? data.user.username;
@@ -13,7 +13,7 @@ export async function renderHeader(data: UserProfileResponse, member?: MemberPre
         : null;
 
     const customStatus = member?.activities?.find(a => a.type === ActivityType.Custom)?.state || null;
-    const statusColor = member?.status ? StatusColors[member.status] : StatusColors.invisible;
+    const statusColor = member?.status ? StatusColors[member.status] : StatusColors.offline;
 
     const clan = data.user.clan;
     const clanBadge = clan && clan.badge
@@ -31,11 +31,11 @@ export async function renderHeader(data: UserProfileResponse, member?: MemberPre
             </div>
             <div style="height:80px;width:260px;display:flex;flex-direction:column;justify-content:center">
                 <div style="display:flex;flex-direction:row;height:25px">
-                    <h1 style="font-size:1.15rem;margin:0 12px 0 0;white-space:nowrap">${escapeXml(username)}</h1>
+                    <h1 style="font-size:1.15rem;margin:0 12px 0 0;white-space:nowrap">${Util.escapeXml(username)}</h1>
                     ${clan && clan.badge ? `
                     <span style="background-color:#111214;border-radius:0.375rem;padding-left:0.5rem;padding-right:0.5rem;margin-left:-6px;margin-right:12px;display:flex;align-items:center;gap:0.25rem;font-size:16px;font-weight:500;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;height:100%">
                         ${clanBadge ? `<img src="${clanBadge}" alt="${clan.tag}" style="width:16px;height:16px;" />` : ''}
-                        <p style="margin-bottom:1.1rem;white-space:nowrap">${escapeXml(clan.tag)}</p>
+                        <p style="margin-bottom:1.1rem;white-space:nowrap">${Util.escapeXml(clan.tag)}</p>
                     </span>` : ''}
                     ${badges.map((badge) => `
                         <img src="${badge}" style="width:auto;height:20px;position:relative;top:50%;transform:translate(0%, -50%);margin-right:2px" />
@@ -43,19 +43,10 @@ export async function renderHeader(data: UserProfileResponse, member?: MemberPre
                 </div>
                 ${customStatus ? `
                 <p style="font-size:0.9rem;margin:0;color:#aaa;font-weight:400;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">
-                    ${escapeXml(customStatus)}
+                    ${Util.escapeXml(customStatus)}
                 </p>` : ''}
             </div>
         </div>
     `;
 }
 
-function escapeXml(unsafe: string): string {
-    return unsafe.replace(/[<>&'"]/g, c => ({
-        '<': '&lt;',
-        '>': '&gt;',
-        '&': '&amp;',
-        '\'': '&apos;',
-        '"': '&quot;'
-    } as Record<string, string>)[c]);
-}

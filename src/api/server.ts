@@ -1,12 +1,13 @@
 import express, { Router } from 'express';
+import cors from 'cors'; // Import the CORS middleware
 import { Client } from '../client';
 import { join } from 'node:path';
 import { RouteStructure } from '../structures/routeStructure';
 import { AuthMiddleware, InfoMiddleware, RateLimitMiddleware } from './middlewares/index';
-import { NotFoundController, HomeController, SpotifyGetTrackController, DiscordGetUserController, HealthCheckController, DiscordProfileController, DiscordGetUserProfileController } from './routes/index';
+import { AuthRoute, DiscordGetUserProfileRoute, DiscordProfileRoute, HealthCheckRoute, HomeRoute, NotFoundRoute, SpotifyGetTrackRoute } from './routes/index';
 
 interface Route {
-    method: string;
+    method: 'get' | 'post' | 'delete' | 'put' | 'patch' | 'options' | 'head';
     path: string;
     handler: RouteStructure;
 };
@@ -21,11 +22,12 @@ class Server extends Client {
     private config(): void {
         this.app.set('view engine', 'html');
         this.app.set('trust proxy', true);
+        this.app.use(cors()); // Enable CORS
         this.app.use(express.static(join(__dirname, '../public')));
         this.app.use(express.json());
         this.app.use(express.urlencoded({ extended: true }));
         this.app.use(this.initRoutes());
-        this.app.use((req, res) => { new NotFoundController(this).run(req, res); });
+        this.app.use((req, res) => { new NotFoundRoute(this).run(req, res); });
     }
 
     private initRoutes(): Router {
@@ -36,10 +38,10 @@ class Server extends Client {
             const { method, path, handler } = route;
 
             switch (method) {
-                case 'GET':
+                case 'get':
                     router.get(path, new RateLimitMiddleware(this).run, new InfoMiddleware(this).run, new AuthMiddleware(this).run, handler.run.bind(handler));
                     break;
-                case 'POST':
+                case 'post':
                     router.post(path, new RateLimitMiddleware(this).run, new InfoMiddleware(this).run, new AuthMiddleware(this).run, handler.run.bind(handler));
                     break;
                 default:
@@ -52,12 +54,13 @@ class Server extends Client {
 
     private loadRoutes(): Route[] {
         const routes: Route[] = [
-            { method: 'GET', path: '/', handler: new HomeController(this) },
-            { method: 'GET', path: '/health', handler: new HealthCheckController(this) },
-            { method: 'GET', path: '/discord/user/:id', handler: new DiscordGetUserController(this) },
-            { method: 'GET', path: '/discord/user/profile/:id', handler: new DiscordGetUserProfileController(this) },
-            { method: 'GET', path: '/spotify/track/:id', handler: new SpotifyGetTrackController(this) },
-            { method: 'GET', path: '/profile/:id', handler: new DiscordProfileController(this) }
+            { method: 'get', path: '/', handler: new HomeRoute(this) },
+            { method: 'get', path: '/health', handler: new HealthCheckRoute(this) },
+            { method: 'get', path: '/discord/user/:id', handler: new DiscordGetUserProfileRoute(this) },
+            { method: 'get', path: '/discord/user/profile/:id', handler: new DiscordGetUserProfileRoute(this) },
+            { method: 'get', path: '/spotify/track/:id', handler: new SpotifyGetTrackRoute(this) },
+            { method: 'get', path: '/profile/:id', handler: new DiscordProfileRoute(this) },
+            { method: 'post', path: '/auth', handler: new AuthRoute(this)}
         ];
 
         return routes;

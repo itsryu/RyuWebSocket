@@ -1,6 +1,6 @@
 import { ActivityType } from "discord-api-types/v10";
 import { MemberPresence } from "../../@types";
-import { ImageUtils } from "../../utils/util";
+import { ImageUtils, Util } from "../../utils/util";
 import { UnknownLogo } from "../../components/icons";
 
 export async function renderActivity(member?: MemberPresence): Promise<string> {
@@ -46,7 +46,7 @@ export async function renderActivity(member?: MemberPresence): Promise<string> {
 
     const now = Date.now();
     const elapsedMs = Math.max(0, now - (activity.timestamps?.start ?? 0));
-    const elapsedTime = activity.timestamps?.start ? formatTime(elapsedMs) : null;
+    const elapsedTime = activity.timestamps?.start ? Util.formatTime(elapsedMs) : null;
 
     return `
         <div style="display:flex;flex-direction:row;height:120px;margin-left:15px;font-size:0.75rem;padding-top:18px">
@@ -60,51 +60,14 @@ export async function renderActivity(member?: MemberPresence): Promise<string> {
             </div>
             <div style="color:#999;margin-top:-6px;line-height:1;width:279px">
                 <p style="color:#fff;font-size:0.85rem;font-weight:bold;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;height:15px;margin:7px 0">
-                    ${escapeXml(activity.name)}</p>
+                    ${Util.escapeXml(activity.name)}</p>
                 ${activity.details ? `<p style="color:#ccc;overflow:hidden;white-space:nowrap;font-size:0.85rem;text-overflow:ellipsis;height:15px;margin:7px 0">
-                    ${escapeXml(activity.details)}</p>` : ''}
+                    ${Util.escapeXml(activity.details)}</p>` : ''}
                 ${activity.state ? `<p style="color:#ccc;overflow:hidden;white-space:nowrap;font-size:0.85rem;text-overflow:ellipsis;height:15px;margin:7px 0">
-                    ${escapeXml(activity.state)}</p>` : ''}
+                    ${Util.escapeXml(activity.state)}</p>` : ''}
                 ${elapsedTime ? `<p style="color:#ccc;overflow:hidden;white-space:nowrap;font-size:0.85rem;text-overflow:ellipsis;height:15px;margin:7px 0">
                     ${elapsedTime} elapsed</p>` : ''}
             </div>
         </div>
     `;
-}
-
-function escapeXml(unsafe: string): string {
-    return unsafe.replace(/[<>&'"]/g, c => ({
-        '<': '&lt;',
-        '>': '&gt;',
-        '&': '&amp;',
-        '\'': '&apos;',
-        '"': '&quot;'
-    } as Record<string, string>)[c]);
-}
-
-interface FormatTimeOptions {
-    padMinutes?: boolean;
-    padSeconds?: boolean;
-}
-
-const formatTime = (ms: number, options: FormatTimeOptions = {}): string => {
-    const { padMinutes = true, padSeconds = true } = options;
-    const totalSeconds = Math.floor(ms / 1000);
-    const seconds = totalSeconds % 60;
-    const totalMinutes = Math.floor(totalSeconds / 60);
-
-    if (totalMinutes < 60) {
-        const formattedMinutes = padMinutes ? String(totalMinutes).padStart(2, '0') : String(totalMinutes);
-        const formattedSeconds = padSeconds ? String(seconds).padStart(2, '0') : String(seconds);
-
-        return `${formattedMinutes}:${formattedSeconds}`;
-    } else {
-        const hours = Math.floor(totalMinutes / 60);
-        const minutes = totalMinutes % 60;
-        const formattedHours = String(hours).padStart(2, '0');
-        const formattedMinutes = padMinutes ? String(minutes).padStart(2, '0') : String(minutes);
-        const formattedSeconds = padSeconds ? String(seconds).padStart(2, '0') : String(seconds);
-        
-        return `${formattedHours}:${formattedMinutes}:${formattedSeconds}`;
-    }
 }

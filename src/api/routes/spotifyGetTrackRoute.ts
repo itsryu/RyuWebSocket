@@ -4,7 +4,8 @@ import { SpotifyTokenResponse, SpotifyTrackResponse } from '../../@types/spotify
 import axios from 'axios';
 import { Logger } from '../../utils/logger';
 
-class SpotifyGetTrackController extends RouteStructure {;
+class SpotifyGetTrackRoute extends RouteStructure {
+    ;
     private static token: string | null = null;
     private static expiresAt: number | null = null;
 
@@ -12,7 +13,7 @@ class SpotifyGetTrackController extends RouteStructure {;
         const id = req.params.id;
 
         try {
-            const track = await SpotifyGetTrackController.getTrack(id);
+            const track = await SpotifyGetTrackRoute.getTrack(id);
 
             if (track) {
                 res.status(200).json(track);
@@ -20,8 +21,8 @@ class SpotifyGetTrackController extends RouteStructure {;
                 res.status(404).json(new JSONResponse(404, 'Not Found').toJSON());
             }
         } catch (err) {
-            Logger.error((err as Error).message, SpotifyGetTrackController.name);
-            Logger.warn((err as Error).stack, SpotifyGetTrackController.name);
+            Logger.error((err as Error).message, SpotifyGetTrackRoute.name);
+            Logger.warn((err as Error).stack, SpotifyGetTrackRoute.name);
 
             res.status(500).json(new JSONResponse(500, 'Internal Server Error').toJSON());
         }
@@ -30,8 +31,8 @@ class SpotifyGetTrackController extends RouteStructure {;
     private static async fetchToken(): Promise<string | null> {
         const now = Date.now();
 
-        if (SpotifyGetTrackController.token && SpotifyGetTrackController.expiresAt && now < SpotifyGetTrackController.expiresAt) {
-            return SpotifyGetTrackController.token;
+        if (SpotifyGetTrackRoute.token && SpotifyGetTrackRoute.expiresAt && now < SpotifyGetTrackRoute.expiresAt) {
+            return SpotifyGetTrackRoute.token;
         } else {
             const getToken = async (resolve: (V: string | null) => void) => {
                 try {
@@ -40,23 +41,24 @@ class SpotifyGetTrackController extends RouteStructure {;
 
                     const response = await axios.post<SpotifyTokenResponse | null>(process.env.SPOTIFY_CREDENTIAL_URI, form, {
                         headers: {
-                            Authorization: 'Basic ' + (Buffer.from(process.env.SPOTIFY_ID + ':' +  process.env.SPOTIFY_SECRET).toString('base64')),
+                            Authorization: 'Basic ' + (Buffer.from(process.env.SPOTIFY_ID + ':' + process.env.SPOTIFY_SECRET).toString('base64')),
                             'Content-Type': 'application/x-www-form-urlencoded'
                         },
                         withCredentials: true
-                    });
+                    })
+                        .catch(() => null)
 
-                    if (response.data) {
-                        SpotifyGetTrackController.expiresAt = now + response.data.expires_in * 1000;
-                        SpotifyGetTrackController.token = response.data.access_token;
+                    if (response && response.data) {
+                        SpotifyGetTrackRoute.expiresAt = now + response.data.expires_in * 1000;
+                        SpotifyGetTrackRoute.token = response.data.access_token;
 
-                        resolve(SpotifyGetTrackController.token);
+                        resolve(SpotifyGetTrackRoute.token);
                     } else {
                         resolve(null);
                     }
                 } catch (err) {
-                    Logger.error((err as Error).message, [SpotifyGetTrackController.name, SpotifyGetTrackController.fetchToken.name]);
-                    Logger.warn((err as Error).stack, [SpotifyGetTrackController.name, SpotifyGetTrackController.fetchToken.name]);
+                    Logger.error((err as Error).message, [SpotifyGetTrackRoute.name, SpotifyGetTrackRoute.fetchToken.name]);
+                    Logger.warn((err as Error).stack, [SpotifyGetTrackRoute.name, SpotifyGetTrackRoute.fetchToken.name]);
 
                     resolve(null);
                 }
@@ -67,7 +69,7 @@ class SpotifyGetTrackController extends RouteStructure {;
     }
 
     public static async getTrack(trackId: string): Promise<SpotifyTrackResponse | null> {
-        const token = await SpotifyGetTrackController.fetchToken();
+        const token = await SpotifyGetTrackRoute.fetchToken();
 
         const getTrack = async (resolve: (V: SpotifyTrackResponse | null) => void) => {
             try {
@@ -76,16 +78,17 @@ class SpotifyGetTrackController extends RouteStructure {;
                         Authorization: `Bearer ${token}`,
                         'Content-Type': 'application/json'
                     }
-                });
+                })
+                    .catch(() => null)
 
-                if (response.data) {
+                if (response && response.data) {
                     resolve(response.data);
                 } else {
                     resolve(null);
                 }
             } catch (err) {
-                Logger.error((err as Error).message, [SpotifyGetTrackController.name, SpotifyGetTrackController.getTrack.name]);
-                Logger.warn((err as Error).stack, [SpotifyGetTrackController.name, SpotifyGetTrackController.getTrack.name]);
+                Logger.error((err as Error).message, [SpotifyGetTrackRoute.name, SpotifyGetTrackRoute.getTrack.name]);
+                Logger.warn((err as Error).stack, [SpotifyGetTrackRoute.name, SpotifyGetTrackRoute.getTrack.name]);
 
                 resolve(null);
             }
@@ -95,6 +98,6 @@ class SpotifyGetTrackController extends RouteStructure {;
     }
 }
 
-export { 
-    SpotifyGetTrackController 
+export {
+    SpotifyGetTrackRoute
 };

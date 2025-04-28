@@ -4,19 +4,60 @@ import axios from 'axios';
 import { Logger } from './logger';
 import { UserProfileResponse, UserResponse } from '../@types';
 import { SendRateLimitState, WebsocketReceivePayload } from '../@types/websocketTypes';
+import { createHash, randomBytes } from 'crypto';
+
+interface FormatTimeOptions {
+    padMinutes?: boolean;
+    padSeconds?: boolean;
+}
 
 class Util {
+    public static hashString(input: string): string {
+        return createHash('sha256').update(input).digest('hex');
+    }   
+
+    public static generateSessionId(length: number = 32): string {
+        try {
+            const randomPart = randomBytes(16).toString('hex');
+            const timestamp = Date.now().toString(36);
+            
+            const hash = createHash ('sha256')
+                .update(randomPart + timestamp)
+                .digest('hex');
+            
+            const sessionId = hash.substring(0, length);
+            
+            return `sess_${sessionId}`;
+        } catch (error) {
+            Logger.error(`Failed to generate session ID: ${(error as Error).message}`, ['Util', 'generateSessionId']);
+            
+            return `sess_fallback_${Math.random().toString(36).substring(2, length)}`;
+        }
+    }
+
+    public static generateSnowflake(): string {
+        const timestamp = Date.now() * 1000;
+        const random = Math.floor(Math.random() * 0xFFFFFFFF);
+        const snowflake = (BigInt(timestamp) << BigInt(22)) | BigInt(random);
+
+        return snowflake.toString(10);
+    }
+
     public static async getDiscordUser(id: Snowflake): Promise<UserResponse | null> {
         const fetchUser = async (resolve: (V: UserResponse | null) => void) => {
             try {
-                const data: UserResponse | undefined = await axios.get(`https://discord.com/api/v10/users/${id}`, {
+                const data: UserResponse = await axios.get(`https://discord.com/api/v10/users/${id}`, {
                     method: 'GET',
                     headers: {
                         Authorization: 'Bot ' + process.env.CLIENT_TOKEN
                     }
                 })
-                    .then((res) => res.data as UserResponse)
-                    .catch(() => undefined);
+                    .then((res) => res.data)
+                    .catch((err) => {
+                        Logger.error((err as Error).message, [Util.name, Util.getDiscordUserProfile.name]);
+                        Logger.warn((err as Error).stack, [Util.name, Util.getDiscordUserProfile.name]);
+                        return null;
+                    });
 
                 if (data) {
                     resolve(data);
@@ -37,14 +78,18 @@ class Util {
     public static async getDiscordUserProfile(id: Snowflake): Promise<UserProfileResponse | null> {
         const fetchUser = async (resolve: (V: UserProfileResponse | null) => void) => {
             try {
-                const data: UserProfileResponse | undefined = await axios.get(`https://discord.com/api/v10/users/${id}/profile`, {
+                const data: UserProfileResponse = await axios.get(`https://discord.com/api/v10/users/${id}/profile`, {
                     method: 'GET',
                     headers: {
                         Authorization: process.env.USER_TOKEN
                     }
                 })
-                    .then((res) => res.data as UserProfileResponse)
-                    .catch(() => undefined);
+                    .then((res) => res.data)
+                    .catch((err) => {
+                        Logger.error((err as Error).message, [Util.name, Util.getDiscordUserProfile.name]);
+                        Logger.warn((err as Error).stack, [Util.name, Util.getDiscordUserProfile.name]);
+                        return null;
+                    });
 
                 if (data) {
                     resolve(data);
@@ -93,14 +138,14 @@ class Util {
         }
     }
 
-    static getInitialSendRateLimitState(): SendRateLimitState {
+    public static getInitialSendRateLimitState(): SendRateLimitState {
         return {
             sent: 0,
             resetAt: Date.now() + 60_000
         };
     }
 
-    static async webhookLog(data: RESTPostAPIWebhookWithTokenJSONBody): Promise<void> {
+    public static async webhookLog(data: RESTPostAPIWebhookWithTokenJSONBody): Promise<void> {
         await fetch(process.env.WEBHOOK_URL, {
             method: 'POST',
             headers: {
@@ -113,7 +158,7 @@ class Util {
         });
     }
 
-    static normalizeResumeUrl(url: string): URL | null {
+    public static normalizeResumeUrl(url: string): URL | null {
         try {
             const resumeUrl = new URL(url);
             resumeUrl.protocol = resumeUrl.protocol || 'wss:';
@@ -125,12 +170,44 @@ class Util {
         }
     }
 
-    static payloadData(payload: WebsocketReceivePayload) {
+    public static payloadData(payload: WebsocketReceivePayload) {
         return JSON.stringify(payload);
     }
 
     public static get randomId(): string {
         return Math.random().toString(36).substring(7);
+    }
+
+    public static escapeXml(unsafe: string): string {
+        return unsafe.replace(/[<>&'"]/g, c => ({
+            '<': '&lt;',
+            '>': '&gt;',
+            '&': '&amp;',
+            '\'': '&apos;',
+            '"': '&quot;'
+        } as Record<string, string>)[c]);
+    }
+    
+    public static formatTime(ms: number, options: FormatTimeOptions = {}): string {
+        const { padMinutes = true, padSeconds = true } = options;
+        const totalSeconds = Math.floor(ms / 1000);
+        const seconds = totalSeconds % 60;
+        const totalMinutes = Math.floor(totalSeconds / 60);
+    
+        if (totalMinutes < 60) {
+            const formattedMinutes = padMinutes ? String(totalMinutes).padStart(2, '0') : String(totalMinutes);
+            const formattedSeconds = padSeconds ? String(seconds).padStart(2, '0') : String(seconds);
+    
+            return `${formattedMinutes}:${formattedSeconds}`;
+        } else {
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
+            const formattedHours = String(hours).padStart(2, '0');
+            const formattedMinutes = padMinutes ? String(minutes).padStart(2, '0') : String(minutes);
+            const formattedSeconds = padSeconds ? String(seconds).padStart(2, '0') : String(seconds);
+            
+            return `${formattedHours}:${formattedMinutes}:${formattedSeconds}`;
+        }
     }
 }
 

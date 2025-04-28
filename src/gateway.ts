@@ -1,14 +1,15 @@
 import WebSocket, { type Data } from 'ws';
-import { ClientOptions, CloseCodes, MemberPresence, SendRateLimitState, SpotifyTrackResponse, UserProfileResponse, WebsocketOpcodes, WebsocketReceivePayload, WebSocketReceivePayloadEvents, WebSocketShardDestroyOptions, WebSocketShardDestroyRecovery, WebSocketShardEvents, WebSocketShardStatus, WebSocketState, WebSocketUser } from './@types';
-import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewaySendPayload, GatewayCloseCodes, GatewayRequestGuildMembersDataWithUserIds } from 'discord-api-types/v10';
+import { ClientOptions, CloseCodes, MemberPresence, SendRateLimitState, SpotifyTrackResponse, UserProfileResponse, WebsocketOpcodes, WebsocketReceivePayload, WebSocketReceivePayloadEvents, WebSocketSendPayload, WebSocketShardDestroyOptions, WebSocketShardDestroyRecovery, WebSocketShardEvents, WebSocketShardStatus, WebSocketUser } from './@types';
+import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewayCloseCodes, GatewayRequestGuildMembersDataWithUserIds } from 'discord-api-types/v10';
 import EventEmitter from 'node:events';
 import { EmbedBuilder } from './structures';
-import axios from 'axios';
 import { SpotifyEvents } from './@types';
-import { SpotifyGetTrackController } from './api/routes';
+import { SpotifyGetTrackRoute } from './api/routes';
 import { Logger } from './utils/logger';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Util } from './utils/util';
+import { Client } from './client';
+import axios from 'axios';
 
 class Gateway extends EventEmitter {
     #token!: Snowflake;
@@ -29,18 +30,25 @@ class Gateway extends EventEmitter {
     private sendRateLimitState: SendRateLimitState = Util.getInitialSendRateLimitState();
     private failedToConnectDueToNetworkError = false;
     private users: WebSocketUser[] = [];
-    private gatewayGuildMemberData: Map<string, MemberPresence>;
-    private gatewayUserTimeout: Map<string, number> = new Map<string, number>();
     private connectionAttempts = 0;
     private maxConnectionAttempts = 10;
     private reconnectDelay = 1000;
     private maxReconnectDelay = 60000;
+    private emitAndBroadcastQueue = new Map<string, {
+        queue: Array<{
+            timestamp: number;
+            data: SpotifyTrackResponse | MemberPresence | GatewayRequestGuildMembersDataWithUserIds | null;
+        }>;
+        timeout?: NodeJS.Timeout;
+        lastProcessed: number;
+    }>();
+    private sendBuffers = new Map<WebsocketOpcodes | GatewayOpcodes, Buffer>();
+    private static readonly QUEUE_TIMEOUT = 5000; // 5 seconds
 
-    constructor(options: ClientOptions, gatewayGuildMemberData: Map<string, MemberPresence>) {
+    constructor(options: ClientOptions) {
         super({ captureRejections: true });
 
         this.options = options;
-        this.gatewayGuildMemberData = gatewayGuildMemberData;
     }
 
     public get status(): WebSocketShardStatus {
@@ -313,23 +321,6 @@ class Gateway extends EventEmitter {
                         break;
                     }
 
-                    case GatewayDispatchEvents.GuildCreate: {
-                        const { presences, members } = d;
-
-                        if(members && presences) {
-                            presences.forEach((presence) => {
-                                const userId = presence.user.id;
-
-                                if (userId === process.env.USER_ID) {
-                                    this.member = { ...this.member, presences: [presence], members };
-                                    this.gatewayGuildMemberData.set(userId, this.member);
-                                }
-                            });
-                        }
-
-                        break;
-                    }
-
                     // message create event
                     case GatewayDispatchEvents.MessageCreate: {
                         this.emit(GatewayDispatchEvents.MessageCreate, d);
@@ -342,20 +333,7 @@ class Gateway extends EventEmitter {
                         const { members, presences, guild_id } = d;
 
                         if (Object.keys(d).length && members.length) {
-                            const now = Date.now();
                             const userId = members[0].user?.id;
-                            const lastRequestTime = this.gatewayUserTimeout.get(userId);
-
-                            if (lastRequestTime && now - lastRequestTime < 10000) {
-                                Logger.warn(`Rate limit exceeded for user ${userId}`, [Gateway.name, this.onMessage.name]);
-
-                                return this.broadcastToUser(userId, {
-                                    op: WebsocketOpcodes.RateLimited,
-                                    t: WebSocketState.RateLimited
-                                });
-                            }
-
-                            this.gatewayUserTimeout.set(userId, now);
 
                             const data: UserProfileResponse | undefined = await axios.get((process.env.STATE == 'development' ? (process.env.LOCAL_URL + ':' + process.env.PORT) : (process.env.DOMAIN_URL)) + '/discord/user/profile/' + members[0].user?.id, {
                                 method: 'GET',
@@ -366,23 +344,24 @@ class Gateway extends EventEmitter {
                                 .then((res) => res.data as UserProfileResponse)
                                 .catch(() => undefined);
 
-                            this.member = { ...this.member, activities: presences?.[0].activities, data, members, guild_id, presences };
+                            const member = { ...this.member, activities: presences?.[0].activities, status: presences?.[0].status, members, guild_id, user: members[0].user, data };
+                            Client.guildMemberPresenceData.set(userId, member);
 
                             // get track event
-                            if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
-                                const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
+                            if (member.activities && member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
+                                const activity = member.activities.find((activity) => activity.id === 'spotify:1');
 
                                 if (activity) {
-                                    const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
+                                    const track = await SpotifyGetTrackRoute.getTrack(activity.sync_id!);
 
-                                    if (data && Object.keys(data).length) {
-                                        this.emitAndBroadcastToUser(userId, SpotifyEvents.GetTrack, data);
+                                    if (track && Object.keys(track).length) {
+                                        this.emitAndBroadcastToUser(userId, SpotifyEvents.GetTrack, track);
                                     }
                                 }
                             }
 
-                            this.emitAndBroadcastToUser(userId, GatewayDispatchEvents.GuildMembersChunk, this.member);
-                            this.gatewayGuildMemberData.set(userId, this.member);
+                            this.emitAndBroadcastToUser(userId, GatewayDispatchEvents.GuildMembersChunk, member);
+                            this.member = member;
                         };
 
                         break;
@@ -394,23 +373,23 @@ class Gateway extends EventEmitter {
                         const userId = user.id;
 
                         if (Object.keys(d).length) {
-                            this.member = { ...this.member, user, activities, status, guild_id };
+                            const member = { ...this.member, user, activities, status, guild_id };
+                            Client.guildMemberPresenceData.set(userId, member);
 
                             // get track event
-                            if (this.member.activities && this.member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
-                                const activity = this.member.activities.find((activity) => activity.id === 'spotify:1');
+                            if (member.activities && member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
+                                const activity = member.activities?.find((activity) => activity.id === 'spotify:1');
 
                                 if (activity) {
-                                    const data = await SpotifyGetTrackController.getTrack(activity.sync_id!);
+                                    const track = await SpotifyGetTrackRoute.getTrack(activity.sync_id!);
 
-                                    if (data && Object.keys(data).length) {
-                                        this.emitAndBroadcastToUser(userId, SpotifyEvents.GetTrack, data);
+                                    if (track && Object.keys(track).length) {
+                                        this.emitAndBroadcastToUser(userId, SpotifyEvents.GetTrack, track);
                                     }
                                 }
                             }
 
-                            this.emitAndBroadcastToUser(userId, GatewayDispatchEvents.PresenceUpdate, this.member);
-                            this.gatewayGuildMemberData.set(userId, this.member);
+                            this.emitAndBroadcastToUser(userId, GatewayDispatchEvents.PresenceUpdate, member);
                         }
 
                         break;
@@ -706,7 +685,7 @@ class Gateway extends EventEmitter {
         }
     }
 
-    public async send(payload: GatewaySendPayload): Promise<void> {
+    public async send(payload: WebSocketSendPayload): Promise<void> {
         if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
             Logger.warn('Socket is not open, cannot send payload', [Gateway.name, this.send.name]);
             return;
@@ -749,35 +728,107 @@ class Gateway extends EventEmitter {
     }
 
     addUser(user: WebSocketUser) {
-        this.users.push(user);
+        if (!this.users.some(u => u.ws === user.ws && u.id === user.id)) {
+            this.users.push(user);
+        }
+    }
+
+    updateUser(user: WebSocketUser) {
+        const index = this.users.findIndex(u => u.ws === user.ws && u.id === user.id);
+
+        if (index !== -1) {
+            this.users[index] = user;
+        } else {
+            this.addUser(user);
+        }
     }
 
     removeUser(ws: WebSocket) {
         this.users = this.users.filter((user) => user.ws !== ws);
     }
 
-    private emitAndBroadcastToUser(userId: string, event: WebSocketReceivePayloadEvents, data: SpotifyTrackResponse | MemberPresence | GatewayRequestGuildMembersDataWithUserIds | null): void {
-        this.emit(event, data);
-        this.broadcastToUser(userId, { op: GatewayOpcodes.Dispatch, t: event, d: data });
+    private async emitAndBroadcastToUser(
+        userId: string,
+        event: WebSocketReceivePayloadEvents,
+        data: SpotifyTrackResponse | MemberPresence | GatewayRequestGuildMembersDataWithUserIds | null
+    ): Promise<void> {
+        const queueKey = `${userId}_${event}`;
+        const now = Date.now();
+
+        if (!this.emitAndBroadcastQueue.has(queueKey)) {
+            this.emitAndBroadcastQueue.set(queueKey, {
+                queue: [],
+                lastProcessed: 0
+            });
+        }
+
+        const queueData = this.emitAndBroadcastQueue.get(queueKey)!;
+
+        queueData.queue.push({ timestamp: now, data });
+
+        if (now - queueData.lastProcessed >= Gateway.QUEUE_TIMEOUT) {
+            this.processQueueItems(queueKey);
+            return;
+        }
+
+        if (queueData.timeout) {
+            clearTimeout(queueData.timeout);
+        }
+
+        queueData.timeout = setTimeout(() => {
+            this.processQueueItems(queueKey);
+        }, Gateway.QUEUE_TIMEOUT - (now - queueData.lastProcessed));
     }
 
-    private broadcastToUser(userId: string, payload: WebsocketReceivePayload): void {
-        const data = Util.payloadData(payload);
-
-        this.users.filter(user => user.id === userId).forEach(user => {
-            if (user.ws.readyState !== WebSocket.OPEN) {
-                Logger.warn(`WS not open for user ${user.id}`, [Gateway.name, this.broadcastToUser.name]);
-                return;
-            }
-
-            try {
-                user.ws.send(data);
-                Logger.info(`Data sent to user ${user.id}`, [Gateway.name, this.broadcastToUser.name]);
-            } catch (error) {
-                Logger.error(`Failed to send to user ${user.id}: ${error}`, [Gateway.name, this.broadcastToUser.name]);
-            }
+    private processQueueItems(queueKey: string): void {
+        const queueData = this.emitAndBroadcastQueue.get(queueKey);
+        if (!queueData || queueData.queue.length === 0) return;
+      
+        const itemsToProcess = [...queueData.queue];
+        queueData.queue = [];
+        queueData.lastProcessed = Date.now();
+      
+        const firstUnderscoreIndex = queueKey.indexOf('_');
+        const userId = queueKey.substring(0, firstUnderscoreIndex);
+        const event = queueKey.substring(firstUnderscoreIndex + 1) as WebSocketReceivePayloadEvents;
+        const lastItem = itemsToProcess[itemsToProcess.length - 1];
+        
+        this.emit(event, lastItem.data);
+        this.broadcastToUser(userId, event, { 
+          op: GatewayOpcodes.Dispatch, 
+          t: event, 
+          d: lastItem.data 
         });
-    }
+    
+        // memory cleaning for inactive queues
+        setTimeout(() => {
+          if (queueData.queue.length === 0 && Date.now() - queueData.lastProcessed > 60000) {
+            if (queueData.timeout) clearTimeout(queueData.timeout);
+            this.emitAndBroadcastQueue.delete(queueKey);
+          }
+        }, 60000);
+      }
+
+    private broadcastToUser(userId: string, event: WebSocketReceivePayloadEvents, payload: WebsocketReceivePayload): void {
+        const user = this.users.find(user => user.user?.ids?.includes(userId)) ?? null;
+
+        if (!user) return;
+        if (user.ws.readyState !== WebSocket.OPEN) return;
+
+        const buffer = this.sendBuffers.get(payload.op) || Buffer.from(JSON.stringify({
+            ...payload,
+            s: user.sequence++
+        }));
+
+        try {
+            user.ws.send(buffer, { compress: true }, (error) => {
+                if (error) Logger.error(`[${user.id}] - Send error: ${error.message}`, [Gateway.name, this.broadcastToUser.name]);
+            });
+            Logger.info(`Data from ${event} event was sent to user ${user.id} on session ${user.sessionId}`, [Gateway.name, this.broadcastToUser.name]);
+        } catch (error) {
+            Logger.error(`Failed to send ${event} event data to user ${user.id} on session ${user.sessionId}: ${error}`, [Gateway.name, this.broadcastToUser.name]);
+        }
+    };
 }
 
 export {

@@ -3,10 +3,10 @@ import { JSONResponse, RouteStructure } from '../../structures';
 import { Util } from '../../utils/util';
 import { Logger } from '../../utils/logger';
 
-class DiscordGetUserProfileController extends RouteStructure {
+class DiscordGetUserRoute extends RouteStructure {
     run = async (req: Request, res: Response) => {
         try {
-            const user = await Util.getDiscordUserProfile(req.params.id);
+            const user = await Util.getDiscordUser(req.params.id);
 
             if (user) {
                 res.status(200).json(user);
@@ -14,14 +14,14 @@ class DiscordGetUserProfileController extends RouteStructure {
                 res.status(404).json({});
             }
         } catch (err) {
-            Logger.error((err as Error).message, DiscordGetUserProfileController.name);
-            Logger.warn((err as Error).stack, DiscordGetUserProfileController.name);
+            Logger.error((err as Error).message, DiscordGetUserRoute.name);
+            Logger.warn((err as Error).stack, DiscordGetUserRoute.name);
 
             res.status(500).json(new JSONResponse(500, 'Internal Server Error').toJSON());
         }
     };
 }
 
-export {
-    DiscordGetUserProfileController
+export { 
+    DiscordGetUserRoute 
 };
