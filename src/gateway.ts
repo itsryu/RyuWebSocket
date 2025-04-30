@@ -354,7 +354,7 @@ class Gateway extends EventEmitter {
                                     const track = await SpotifyGetTrackRoute.getTrack(activity.sync_id!);
 
                                     if (track && Object.keys(track).length) {
-                                        this.emitAndBroadcastToUser(userId, SpotifyEvents.GetTrack, track, user.sequence++);
+                                        this.emitAndBroadcastToUser(userId, SpotifyEvents.GetTrack, track);
                                     }
                                 }
                             }
@@ -388,7 +388,7 @@ class Gateway extends EventEmitter {
                                     const track = await SpotifyGetTrackRoute.getTrack(activity.sync_id!);
 
                                     if (track && Object.keys(track).length) {
-                                        this.emitAndBroadcastToUser(userId, SpotifyEvents.GetTrack, track, user.sequence++);
+                                        this.emitAndBroadcastToUser(userId, SpotifyEvents.GetTrack, track);
                                     }
                                 }
                             }
@@ -801,16 +801,20 @@ class Gateway extends EventEmitter {
         }, 60000);
       }
 
-    private broadcastToUser(userId: string, event: WebSocketReceivePayloadEvents, payload: WebsocketReceivePayload, sequence?: number): void {
+    private broadcastToUser(userId: string, event: WebSocketReceivePayloadEvents, payload: WebsocketReceivePayload): void {
         const user = this.users.find(user => user.user?.ids?.includes(userId)) ?? null;
 
         if (!user) return;
         if (user.ws.readyState !== WebSocket.OPEN) return;
 
-        const buffer = this.sendBuffers.get(payload.op) || Buffer.from(JSON.stringify({
-            ...payload,
-            s: sequence
-        }));
+        const { op } = payload;
+
+        const buffer = (op === WebsocketOpcodes.Dispatch || op === GatewayOpcodes.Dispatch)
+            ? (() => {
+                user.sequence++;
+                return Buffer.from(JSON.stringify({ ...payload, s: user.sequence }));
+            })()
+            : Buffer.from(JSON.stringify({ ...payload }));
 
         try {
             user.ws.send(buffer, { compress: true }, (error) => {

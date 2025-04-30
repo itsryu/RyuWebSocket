@@ -308,9 +308,7 @@ class Connection {
     private async handleResume(user: WebSocketUser, sessionId: string, sequence: number) {
         const session = this.sessions.get(sessionId);
 
-        console.log(user.sequence, sequence);
-
-        if (session && user.sessionId === sessionId && user.sequence === (sequence - 1)) {
+        if (session && user.sessionId === sessionId && user.sequence === (sequence)) {
             this.clearSessionTimeout(sessionId);
 
             user.sessionId = sessionId;
@@ -569,9 +567,14 @@ class Connection {
     private send(user: WebSocketUser, payload: WebsocketReceivePayload) {
         if (user.ws.readyState !== WebSocket.OPEN) return;
 
-        const buffer = this.sendBuffers.get(payload.op) || Buffer.from(JSON.stringify({
-            ...payload
-        }));
+        const { op } = payload;
+
+        const buffer = (op === WebsocketOpcodes.Dispatch || op === GatewayOpcodes.Dispatch)
+            ? (() => {
+                user.sequence++;
+                return Buffer.from(JSON.stringify({ ...payload, s: user.sequence }));
+            })()
+            : Buffer.from(JSON.stringify({ ...payload }));
 
         try {
             user.ws.send(buffer, { compress: true }, (error) => {
