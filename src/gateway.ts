@@ -1,6 +1,6 @@
 import WebSocket, { type Data } from 'ws';
 import { ClientOptions, CloseCodes, MemberPresence, SendRateLimitState, SpotifyTrackResponse, UserProfileResponse, WebsocketOpcodes, WebsocketReceivePayload, WebSocketReceivePayloadEvents, WebSocketSendPayload, WebSocketShardDestroyOptions, WebSocketShardDestroyRecovery, WebSocketShardEvents, WebSocketShardStatus, WebSocketUser } from './@types';
-import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewayCloseCodes, GatewayRequestGuildMembersDataWithUserIds } from 'discord-api-types/v10';
+import { GatewayOpcodes, GatewayDispatchEvents, Snowflake, GatewayReceivePayload, GatewayCloseCodes, GatewayRequestGuildMembersDataWithUserIds, PresenceUpdateStatus } from 'discord-api-types/v10';
 import EventEmitter from 'node:events';
 import { EmbedBuilder } from './structures';
 import { SpotifyEvents } from './@types';
@@ -16,7 +16,6 @@ class Gateway extends EventEmitter {
     #status: WebSocketShardStatus = WebSocketShardStatus.Idle;
     private socket: WebSocket | null = null;
     private readonly options: ClientOptions;
-    private member!: MemberPresence;
     public connections = new Map<string, WebSocket>();
     private resume_url!: URL | null;
     private sequence!: number | null;
@@ -217,8 +216,6 @@ class Gateway extends EventEmitter {
 
         switch (op) {
             case GatewayOpcodes.Hello: {
-                this.emit(WebSocketShardEvents.Hello);
-
                 const jitter = Math.random();
                 const firstWait = Math.floor(d.heartbeat_interval * jitter);
 
@@ -260,12 +257,6 @@ class Gateway extends EventEmitter {
 
                 const ackAt = Date.now();
                 const latency = ackAt - this.lastHeartbeatAt;
-
-                this.emit(WebSocketShardEvents.HeartbeatComplete, {
-                    ackAt,
-                    heartbeatAt: this.lastHeartbeatAt,
-                    latency: latency
-                });
 
                 Logger.debug(`Heartbeat latency: ${latency}ms`, [Gateway.name, this.onMessage.name]);
 
@@ -344,8 +335,16 @@ class Gateway extends EventEmitter {
                                 .then((res) => res.data as UserProfileResponse)
                                 .catch(() => undefined);
 
-                            const member = { ...this.member, activities: presences?.[0].activities, status: presences?.[0].status, members, guild_id, user: members[0].user, data };
-                            Client.guildMemberPresenceData.set(userId, member);
+                            const member = {
+                                activities: presences?.[0]?.activities || [], 
+                                status: presences?.[0]?.status ?? PresenceUpdateStatus.Offline, 
+                                members, 
+                                guild_id, 
+                                user: members[0]?.user, 
+                                data
+                            };
+                            
+                            Client.guildMemberPresenceData.update(userId, member);
 
                             // get track event
                             if (member.activities && member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
@@ -360,8 +359,7 @@ class Gateway extends EventEmitter {
                                 }
                             }
 
-                            this.emitAndBroadcastToUser(userId, GatewayDispatchEvents.GuildMembersChunk, member);
-                            this.member = member;
+                            this.emitAndBroadcastToUser(userId, GatewayDispatchEvents.GuildMembersChunk, (await Client.guildMemberPresenceData.get(userId))!);
                         };
 
                         break;
@@ -373,8 +371,14 @@ class Gateway extends EventEmitter {
                         const userId = user.id;
 
                         if (Object.keys(d).length) {
-                            const member = { ...this.member, user, activities, status, guild_id };
-                            Client.guildMemberPresenceData.set(userId, member);
+                            const member = { 
+                                user, 
+                                activities, 
+                                status, 
+                                guild_id 
+                            };
+
+                            Client.guildMemberPresenceData.update(userId, member);
 
                             // get track event
                             if (member.activities && member.activities.filter((activity) => activity.id === 'spotify:1').length > 0) {
@@ -389,7 +393,7 @@ class Gateway extends EventEmitter {
                                 }
                             }
 
-                            this.emitAndBroadcastToUser(userId, GatewayDispatchEvents.PresenceUpdate, member);
+                            this.emitAndBroadcastToUser(userId, GatewayDispatchEvents.PresenceUpdate, (await Client.guildMemberPresenceData.get(userId))!);
                         }
 
                         break;
@@ -434,8 +438,6 @@ class Gateway extends EventEmitter {
     }
 
     private onError(error: Error) {
-        this.emit(WebSocketShardEvents.Error, error);
-
         this.failedToConnectDueToNetworkError = true;
 
         Logger.error(error.message, [Gateway.name, this.onError.name]);
@@ -446,8 +448,6 @@ class Gateway extends EventEmitter {
     }
 
     private onClose(code: CloseCodes | GatewayCloseCodes) {
-        this.emit(WebSocketShardEvents.Closed, code);
-
         switch (code) {
             case CloseCodes.Normal: {
                 return this.destroy({
@@ -482,11 +482,6 @@ class Gateway extends EventEmitter {
             }
 
             case GatewayCloseCodes.AuthenticationFailed: {
-                this.emit(
-                    WebSocketShardEvents.Error,
-
-                    new Error('Authentication failed')
-                );
                 return this.destroy({ code });
             }
 
@@ -511,43 +506,42 @@ class Gateway extends EventEmitter {
             }
 
             case GatewayCloseCodes.InvalidShard: {
-                this.emit(WebSocketShardEvents.Error, new Error('Invalid shard'));
+                Logger.debug([
+                    'An invalid shard was sent.',
+                    'This is usually caused by a bug in the library.'
+                ], [Gateway.name, this.onClose.name]);
                 return this.destroy({ code });
             }
 
             case GatewayCloseCodes.ShardingRequired: {
-                this.emit(
-                    WebSocketShardEvents.Error,
-
-                    new Error('Sharding is required')
-                );
+                Logger.debug([
+                    'Sharding is required for this connection.',
+                    'This is usually caused by a bug in the library.'
+                ], [Gateway.name, this.onClose.name]);
                 return this.destroy({ code });
             }
 
             case GatewayCloseCodes.InvalidAPIVersion: {
-                this.emit(
-                    WebSocketShardEvents.Error,
-
-                    new Error('Used an invalid API version')
-                );
+                Logger.debug([
+                    'An invalid API version was sent.',
+                    'This is usually caused by a bug in the library.'
+                ], [Gateway.name, this.onClose.name]);
                 return this.destroy({ code });
             }
 
             case GatewayCloseCodes.InvalidIntents: {
-                this.emit(
-                    WebSocketShardEvents.Error,
-
-                    new Error('Used invalid intents')
-                );
+                Logger.debug([
+                    'An invalid intent was sent.',
+                    'This is usually caused by a bug in the library.'
+                ], [Gateway.name, this.onClose.name]);
                 return this.destroy({ code });
             }
 
             case GatewayCloseCodes.DisallowedIntents: {
-                this.emit(
-                    WebSocketShardEvents.Error,
-
-                    new Error('Used disallowed intents')
-                );
+                Logger.debug([
+                    'An intent was sent that is not allowed.',
+                    'This is usually caused by a bug in the library.'
+                ], [Gateway.name, this.onClose.name]);
                 return this.destroy({ code });
             }
 
@@ -632,8 +626,6 @@ class Gateway extends EventEmitter {
                         this.socket?.on('close', onClose);
                         this.socket?.close(options.code, options.reason);
                     });
-
-                    this.emit(WebSocketShardEvents.Closed, options.code);
                 } catch (error) {
                     Logger.error(`Error while closing socket: ${error}`, [Gateway.name, this.destroy.name]);
                 }
@@ -816,8 +808,7 @@ class Gateway extends EventEmitter {
         if (user.ws.readyState !== WebSocket.OPEN) return;
 
         const buffer = this.sendBuffers.get(payload.op) || Buffer.from(JSON.stringify({
-            ...payload,
-            s: user.sequence++
+            ...payload
         }));
 
         try {

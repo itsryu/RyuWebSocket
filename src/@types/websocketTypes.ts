@@ -2,36 +2,29 @@ import { APIGuildMember, GatewayDispatchEvents, GatewayGuildMembersChunkPresence
 import { SpotifyEvents } from "./spotifyInterfaces";
 import { WebSocket } from "ws";
 
-export enum WebSocketState {
-    Connecting = "CONNECTING",
-    Connected = "CONNECTED",
-    Disconnected = "DISCONNECTED",
-    Heartbeat = "HEARTBEAT",
-    Identifying = "IDENTIFYING",
-    Ready = "READY",
-    RateLimited = "RATE_LIMITED"
-}
-
-export type WebSocketReceivePayloadEvents = SpotifyEvents | GatewayDispatchEvents | WebSocketState;
+export type WebSocketReceivePayloadEvents = SpotifyEvents | GatewayDispatchEvents | WebSocketShardEvents;
 
 export enum WebsocketOpcodes {
+    Dispatch = 0,
+    Heartbeat = 1,
+    Identify = 2,
+    Resume = 6,
+    Reconnect = 7,
+    InvalidSession = 9,
     Hello = 10,
-    Identify = 1,
-    Heartbeat = 2,
-    HeartbeatAck = 3,
-    Ready = 4,
-    InvalidSession = 5,
-    Reconnect = 6,
-    Resume = 7,
+    HeartbeatAck = 11,
     RequestGuildMembers = 8,
-    Resumed = 9,
     ReconnectRequired = 13,
     SessionInvalidated = 14,
     ResumeSuggested = 15,
     Error = 4005,
-    InvalidPayload = 4000,
+    UnknownError = 4000,
     InvalidOpcode = 4001,
-    RateLimited = 4002
+    DecodeError = 4002,
+    NotAuthenticated = 4003,
+    AuthenticationFailed = 4004,
+    AlreadyAuthenticated = 4005,
+    RateLimited = 4008
 }
 
 export interface WebSocketSendPayload {
@@ -74,7 +67,7 @@ export interface ReadyPayload {
 export interface WebsocketReceivePayload {
     op: WebsocketOpcodes | GatewayOpcodes;
     d?: any;
-    t?: string | WebSocketState;
+    t?: string | WebSocketShardEvents;
     s?: number;
     _trace?: string[];
 }
@@ -87,15 +80,9 @@ export interface WebSocketReadyEventPayload {
 }
 
 export enum WebSocketShardEvents {
-    Closed = 'closed',
-    Debug = 'debug',
-    Dispatch = 'dispatch',
-    Error = 'error',
-    HeartbeatComplete = 'heartbeat',
-    Hello = 'hello',
-    Ready = 'ready',
-    Resumed = 'resumed',
-    SocketError = 'socketError',
+    Ready = 'READY',
+    Resumed = 'RESUMED',
+    Debug = 'DEBUG',
 }
 
 export enum WebSocketShardStatus {

@@ -1,11 +1,11 @@
-import { GatewayGuildMembersChunkDispatchData, GatewayIntentBits, GatewayOpcodes, GatewayPresenceUpdateDispatchData } from 'discord-api-types/v10';
+import { GatewayIntentBits, GatewayOpcodes, GatewayPresenceUpdateDispatchData } from 'discord-api-types/v10';
 
 export interface ClientOptions {
     intents: GatewayIntentBits[];
 }
 
-export interface MemberPresence extends GatewayPresenceUpdateDispatchData, GatewayGuildMembersChunkDispatchData {
-    data: UserProfileResponse | undefined
+export interface MemberPresence extends GatewayPresenceUpdateDispatchData {
+    data?: UserProfileResponse | undefined
 }
 
 interface AvatarDecorationData {

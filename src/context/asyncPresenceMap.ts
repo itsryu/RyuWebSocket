@@ -14,7 +14,7 @@ export class AsyncPresenceMap {
         return AsyncPresenceMap.instance;
     }
 
-    public async get(userId: string): Promise<MemberPresence | undefined> {
+    public async get(userId: string): Promise<MemberPresence| undefined> {
         if (this.data.has(userId)) {
             return this.data.get(userId);
         }
@@ -36,6 +36,15 @@ export class AsyncPresenceMap {
                 resolve(presence);
             }
             this.waitingResolvers.delete(userId);
+        }
+    }
+
+    public update(userId: string, presence: MemberPresence): void {
+        if (this.data.has(userId)) {
+            const existingPresence = this.data.get(userId)!;
+            this.data.set(userId, { ...existingPresence, ...presence });
+        } else {
+            this.set(userId, presence);
         }
     }
 

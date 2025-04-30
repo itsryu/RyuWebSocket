@@ -4,7 +4,7 @@ import { RawData, WebSocket, WebSocketServer } from 'ws';
 import { Util } from './utils/util';
 import { EmbedBuilder } from './structures';
 import { Logger } from './utils/logger';
-import { WebsocketOpcodes, WebsocketReceivePayload, WebSocketUser, IdentifyPayload, WebSocketRequestGuildMembersPayloadData } from './@types/websocketTypes';
+import { WebsocketOpcodes, WebsocketReceivePayload, WebSocketUser, IdentifyPayload, WebSocketRequestGuildMembersPayloadData, WebSocketShardEvents } from './@types/websocketTypes';
 import { Gateway } from './gateway';
 import { Info } from './utils/info';
 import { RateLimiterMemory } from 'rate-limiter-flexible';
@@ -50,8 +50,6 @@ class Connection {
             clientTracking: true,
             verifyClient: this.verifyClient.bind(this)
         };
-
-        this.startZombieConnectionChecker();
     }
 
     private addConnection(user: WebSocketUser) {
@@ -66,6 +64,7 @@ class Connection {
     private removeConnection(user: WebSocketUser) {
         this.connectionPool.forEach(ref => {
             const connection = ref.deref();
+
             if (connection === user) {
                 this.connectionPool.delete(ref);
                 this.finalizationRegistry.unregister(user);
@@ -83,6 +82,7 @@ class Connection {
             }
 
             const ip = Info.getClientIp(info.req);
+
             try {
                 await this.rateLimiter.consume(ip);
                 callback(true, undefined, this.negotiateProtocolVersion(info.req));
@@ -144,8 +144,6 @@ class Connection {
                 }
             });
 
-            this.startHeartbeat(user);
-
             const embed = new EmbedBuilder()
                 .setColor(0x1ed760)
                 .setTitle('Websocket Connection')
@@ -161,18 +159,21 @@ class Connection {
         }
     }
 
+    private async consumeRateLimit(user: WebSocketUser) {
+        try {
+            await this.rateLimiter.consume(user.id);
+        } catch (rateLimitError) {
+            ;
+            this.sendRateLimitExceeded(user);
+            return false;
+        }
+
+        return true;
+    }
+
     private async onMessage(user: WebSocketUser, data: RawData) {
         try {
-            try {
-                await this.rateLimiter.consume(user.id);
-            } catch (rateLimitError) {
-                this.send(user, {
-                    op: WebsocketOpcodes.RateLimited,
-                    d: { retry_after: 1, global: false }
-                });
-
-                return;
-            }
+            if (!this.consumeRateLimit(user)) return;
 
             const payload = await this.parsePayload<WebsocketReceivePayload>(data);
             if (!payload) return this.sendInvalidPayload(user);
@@ -192,7 +193,9 @@ class Connection {
                         break;
 
                     case WebsocketOpcodes.Resume:
-                        await this.handleResume(user, payload.d as string);
+                        const { session, sequence } = payload.d as { session: string, sequence: number };
+
+                        await this.handleResume(user, session, sequence);
                         break;
 
                     case GatewayOpcodes.PresenceUpdate:
@@ -208,7 +211,10 @@ class Connection {
 
                 this.send(user, {
                     op: WebsocketOpcodes.Error,
-                    d: { message: 'Failed to process operation' }
+                    d: {
+                        message: 'Failed to process operation',
+                        _trace: ['gateway-op-error']
+                    }
                 });
 
             }
@@ -241,24 +247,12 @@ class Connection {
     }
 
     private async handleIdentify(user: WebSocketUser, data: IdentifyPayload) {
-        if (user.identified) {
-            return this.send(user, {
-                op: WebsocketOpcodes.InvalidSession,
-                d: false
-            });
-        }
+        if (user.identified) return this.sendInvalidSession(user);
 
         const session = this.sessions.get(data.session!) ?? null;
         const ids = data.ids ?? [];
 
-        if (!session || ids.length === 0) {
-            this.send(user, {
-                op: WebsocketOpcodes.InvalidSession,
-                d: false
-            });
-
-            return this.destroy(user, 4004, 'Identification failed');
-        }
+        if (!session || ids.length === 0) return this.sendInvalidSession(user);
 
         const sessionId = session.sessionId;
 
@@ -278,7 +272,8 @@ class Connection {
         this.gateway.updateUser(user);
 
         this.send(user, {
-            op: WebsocketOpcodes.Ready,
+            op: WebsocketOpcodes.Dispatch,
+            t: WebSocketShardEvents.Ready,
             d: {
                 session_id: user.sessionId,
                 fingerprint: session.fingerprint,
@@ -287,10 +282,14 @@ class Connection {
             }
         });
 
+        this.startHeartbeat(user);
+
         Logger.info(`[${user.id}] - Identified as ${session.fingerprint} tracing [${ids?.join(', ')}]`, [Connection.name, this.handleIdentify.name]);
     }
 
     private async handleHeartbeat(user: WebSocketUser) {
+        if (!user.identified) return this.sendInvalidSession(user);
+
         user.isAlive = true;
         user.missedPings = 0;
 
@@ -299,45 +298,49 @@ class Connection {
             d: {
                 timestamp: Date.now(),
                 _trace: ['gateway-ack']
-            }
+            },
+            s: user.sequence
         });
 
         Logger.debug(`[${user.id}] - Heartbeat acknowledged`, [Connection.name]);
     }
 
-    private async handleResume(user: WebSocketUser, sessionId: string) {
+    private async handleResume(user: WebSocketUser, sessionId: string, sequence: number) {
         const session = this.sessions.get(sessionId);
 
-        if (!session) {
+        console.log(user.sequence, sequence);
+
+        if (session && user.sessionId === sessionId && user.sequence === (sequence - 1)) {
+            this.clearSessionTimeout(sessionId);
+
+            user.sessionId = sessionId;
+            user.identified = true;
+            user.user.ids = session.clientInfo.ids;
+
             this.send(user, {
-                op: WebsocketOpcodes.InvalidSession,
-                d: true
+                op: WebsocketOpcodes.Dispatch,
+                t: WebSocketShardEvents.Resumed,
+                d: {
+                    session_id: sessionId,
+                    _trace: ['gateway-resumed']
+                },
+                s: user.sequence,
             });
-            return;
+
+            this.startHeartbeat(user);
+
+            Logger.info(`[${user.id}] - Session resumed: ${sessionId}`, [Connection.name, this.handleResume.name]);
+        } else {
+            this.handleSessionInvalidation(user, 'authentication_failure');
+            this.clearSessionTimeout(sessionId);
+
+            Logger.warn(`[${user.id}] - Session invalidated: ${sessionId}`, [Connection.name, this.handleResume.name]);
         }
-
-        this.clearSessionTimeout(sessionId);
-
-        user.sessionId = sessionId;
-        user.identified = true;
-        user.user.ids = session.clientInfo.ids;
-
-        this.send(user, {
-            op: WebsocketOpcodes.Resumed,
-            d: {
-                session_id: sessionId,
-                sequence: user.sequence,
-                _trace: ['gateway-resumed']
-            }
-        });
-
-        this.startHeartbeat(user);
-
-        Logger.info(`[${user.id}] - Session resumed: ${sessionId}`, [Connection.name, this.handleResume.name]);
     }
 
     private clearSessionTimeout(sessionId: string) {
         const timeout = this.sessionTimeouts.get(sessionId);
+
         if (timeout) {
             clearTimeout(timeout);
             this.sessionTimeouts.delete(sessionId);
@@ -356,24 +359,21 @@ class Connection {
     }
 
     private notifyReconnectStrategy(user: WebSocketUser, action: 'reconnect' | 'resume', reason: string) {
-        const basePayload = {
-            reason,
-            retry_after: 5000, // ms
-            code: action === 'reconnect' ? 4000 : 4001,
-            _trace: ['gateway-reconnect-strategy']
-        };
-
         const opcode = action === 'reconnect'
             ? WebsocketOpcodes.ReconnectRequired
             : WebsocketOpcodes.ResumeSuggested;
 
         this.send(user, {
             op: opcode,
-            d: basePayload
+            d: {
+                reason,
+                retry_after: 5000,
+                code: action === 'reconnect' ? 4000 : 4001,
+                _trace: ['gateway-reconnect-strategy']
+            }
         });
 
-        Logger.info(`[${user.id}] - Notified to ${action}. Reason: ${reason}`,
-            [Connection.name, this.notifyReconnectStrategy.name]);
+        Logger.warn(`[${user.id}] - Notified to ${action}. Reason: ${reason}`, [Connection.name, this.notifyReconnectStrategy.name]);
     }
 
     private handleSessionInvalidation(user: WebSocketUser, reason: string) {
@@ -391,36 +391,20 @@ class Connection {
     }
 
     private async handlePresenceUpdate(user: WebSocketUser, data: GatewayPresenceUpdateDispatchData) {
-        if (!user.identified) {
-            this.send(user, {
-                op: WebsocketOpcodes.InvalidSession,
-                d: false
-            });
-            return;
-        }
-
-        if (data.user.id !== user.id) {
-            this.send(user, {
-                op: WebsocketOpcodes.InvalidSession,
-                d: false
-            });
-            return;
-        }
+        if (!user.identified) return this.sendInvalidSession(user);
+        if (data.user.id !== user.user.ids[0]) return;
 
         this.send(user, {
             op: GatewayOpcodes.PresenceUpdate,
-            d: data
+            d: {
+                ...data,
+                _trace: ['gateway-presence-update']
+            }
         });
     }
 
     private async handleRequestGuildMembers(user: WebSocketUser, data: WebSocketRequestGuildMembersPayloadData) {
-        if (!user.identified) {
-            this.send(user, {
-                op: WebsocketOpcodes.InvalidSession,
-                d: false
-            });
-            return;
-        }
+        if (!user.identified) return this.sendInvalidSession(user);
 
         await this.gateway.send({
             op: GatewayOpcodes.RequestGuildMembers,
@@ -463,47 +447,59 @@ class Connection {
 
             user.isAlive = false;
 
-            const requestId = Util.generateSnowflake();
             const pingSentAt = Date.now();
 
             this.send(user, {
                 op: WebsocketOpcodes.Heartbeat,
                 d: {
-                    sequence: user.sequence,
-                    request_id: requestId,
                     timestamp: pingSentAt
                 }
             });
 
             setTimeout(() => {
-                if (!user.isAlive) {
-                    Logger.warn(`[${user.id}] - No ACK for ping ${requestId}`, [Connection.name]);
-                }
+                if (!user.isAlive) Logger.warn(`[${user.id}] - No ACK for user ${user.id} (${user.ip})`, [Connection.name]);
             }, Connection.PING_INTERVAL / 2);
         };
 
         sendPing();
 
-        user.pingInterval = setInterval(sendPing, Connection.PING_INTERVAL) as unknown as NodeJS.Timeout;
+        user.pingInterval = setInterval(sendPing, Connection.PING_INTERVAL) as NodeJS.Timeout;
     }
 
+    private sendRateLimitExceeded(user: WebSocketUser) {
+        this.send(user, {
+            op: WebsocketOpcodes.RateLimited,
+            d: {
+                retry_after: 1,
+                global: false,
+                _trace: ['gateway-rate-limit']
+            },
+        });
 
-    private startZombieConnectionChecker() {
-        setInterval(() => {
-            this.connectionPool.forEach(ref => {
-                const user = ref.deref();
+        Logger.warn(`[${user.id}] - Rate limit exceeded`, [Connection.name, this.sendRateLimitExceeded.name]);
+    }
 
-                if (user && !user.isAlive && user.missedPings > 0) {
-                    this.destroy(user, 4009, 'Zombie connection');
-                }
-            });
-        }, Connection.PING_INTERVAL * 2);
+    private sendInvalidSession(user: WebSocketUser) {
+        this.send(user, {
+            op: WebsocketOpcodes.InvalidSession,
+            d: {
+                message: 'Invalid session',
+                _trace: ['gateway-invalid-session']
+            }
+        });
+
+        this.destroy(user, 4004, 'Invalid session');
+
+        Logger.warn(`[${user.id}] - Invalid session from ${user.id} (${user.ip})`, [Connection.name, this.sendInvalidSession.name]);
     }
 
     private sendInvalidPayload(user: WebSocketUser) {
         this.send(user, {
-            op: WebsocketOpcodes.InvalidPayload,
-            d: { message: 'Invalid payload received' }
+            op: WebsocketOpcodes.DecodeError,
+            d: {
+                message: 'Invalid payload received',
+                _trace: ['gateway-invalid-payload']
+            }
         });
 
         Logger.warn(`[${user.id}] - Invalid payload received`, [Connection.name, this.sendInvalidPayload.name]);
@@ -512,7 +508,10 @@ class Connection {
     private sendInvalidOpcode(user: WebSocketUser) {
         this.send(user, {
             op: WebsocketOpcodes.InvalidOpcode,
-            d: { message: 'Unsupported opcode received' }
+            d: {
+                message: 'Unsupported opcode received',
+                _trace: ['gateway-invalid-opcode']
+            }
         });
         Logger.warn(`[${user.id}] - Invalid opcode received`, [Connection.name, this.sendInvalidOpcode.name]);
     }
@@ -530,13 +529,13 @@ class Connection {
     }
 
     private destroy(user: WebSocketUser, code?: number, reason?: string) {
-        if (code === 4009) { // Heartbeat timeout
+        if (code === 4009) {
             this.notifyReconnectStrategy(user, 'resume', 'heartbeat_timeout');
         }
-        else if (code === 1013) { // Server overload
+        else if (code === 1013) {
             this.notifyReconnectStrategy(user, 'reconnect', 'server_overload');
         }
-        else if (code === 4004) { // Auth failed
+        else if (code === 4004) {
             this.handleSessionInvalidation(user, 'authentication_failure');
         }
 
@@ -571,8 +570,7 @@ class Connection {
         if (user.ws.readyState !== WebSocket.OPEN) return;
 
         const buffer = this.sendBuffers.get(payload.op) || Buffer.from(JSON.stringify({
-            ...payload,
-            s: user.sequence++
+            ...payload
         }));
 
         try {
