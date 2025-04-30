@@ -32,7 +32,6 @@ class Connection {
     }> = new Map();
 
     private abortControllers = new Map<string, AbortController>();
-    private sendBuffers = new Map<WebsocketOpcodes | GatewayOpcodes, Buffer>();
 
     constructor(server: WebSocketServer, gateway: Gateway) {
         this.server = server;
