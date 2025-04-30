@@ -41,7 +41,6 @@ class Gateway extends EventEmitter {
         timeout?: NodeJS.Timeout;
         lastProcessed: number;
     }>();
-    private sendBuffers = new Map<WebsocketOpcodes | GatewayOpcodes, Buffer>();
     private static readonly QUEUE_TIMEOUT = 5000; // 5 seconds
 
     constructor(options: ClientOptions) {
