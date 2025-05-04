@@ -8,6 +8,7 @@ import { WebsocketOpcodes, WebsocketReceivePayload, WebSocketUser, IdentifyPaylo
 import { Gateway } from './gateway';
 import { Info } from './utils/info';
 import { RateLimiterMemory } from 'rate-limiter-flexible';
+import { TLSSocket } from 'tls';
 
 class Connection {
     private server: WebSocketServer;
@@ -15,6 +16,7 @@ class Connection {
     private static readonly PING_INTERVAL: number = 41250;
     private static readonly MAX_CONNECTIONS: number = 100;
     private static readonly RATE_LIMIT: number = 5;
+    private static readonly RESUME_SESSION_TIMEOUT: number = 5 * 60_000;
 
     private rateLimiter: RateLimiterMemory;
     private allowedOrigins = new Set(process.env.ALLOWED_ORIGINS?.split(',') || []);
@@ -105,8 +107,14 @@ class Connection {
             ws.close(1013, 'Server too busy');
             return;
         }
-
+    
         try {
+            const socket = req.socket;
+            const protocol = socket instanceof TLSSocket && socket.encrypted === true ? 'wss' : 'ws';
+            const host = req.headers.host || 'localhost';
+            const reqUrl = req.url ? new URL(req.url, `${protocol}://${host}`) : null;
+            const resumeSessionId = reqUrl?.searchParams.get("session");
+
             const id = Util.generateSnowflake();
             const info = await Info.getClientInfo(req, ws);
             const user: WebSocketUser = {
@@ -123,7 +131,15 @@ class Connection {
                 maxMissedPings: 3,
                 protocol: this.negotiateProtocolVersion(req)
             };
+    
+            if (resumeSessionId && this.sessions.has(resumeSessionId)) {
+                const storedSession = this.sessions.get(resumeSessionId)!;
 
+                user.sessionId = storedSession.sessionId;
+                user.identified = true;
+                user.user.ids = storedSession.clientInfo.ids;
+            }
+            
             ws.on('message', (message) => {
                 this.onMessage(user, message).catch(error =>
                     this.handleError(user, error)
@@ -131,26 +147,28 @@ class Connection {
             });
             ws.on('close', (code) => this.onClose(user, code));
             ws.on('error', (error) => this.onError(user, error));
-
+    
             this.addConnection(user);
             this.gateway.addUser(user);
-
-            this.send(user, {
-                op: WebsocketOpcodes.Hello,
-                d: {
-                    heartbeat_interval: Connection.PING_INTERVAL,
-                    _trace: ['gateway-hello']
-                }
-            });
-
+    
+            if (!user.identified) {
+                this.send(user, {
+                    op: WebsocketOpcodes.Hello,
+                    d: {
+                        heartbeat_interval: Connection.PING_INTERVAL,
+                        _trace: ['gateway-hello']
+                    }
+                });
+            }
+    
             const embed = new EmbedBuilder()
                 .setColor(0x1ed760)
                 .setTitle('Websocket Connection')
                 .setDescription(Info.getClientInfoMessage(info).join('\n'))
                 .setTimestamp(Date.now().toString());
-
+    
             await Util.webhookLog({ embeds: [embed] });
-
+    
             Logger.info(`[${user.id}] - [${user.ip}]: New connection established`, [Connection.name, this.onConnect.name]);
         } catch (error) {
             Logger.error(`Connection error: ${(error as Error).message}`, [Connection.name, this.onConnect.name]);
@@ -262,7 +280,7 @@ class Connection {
             fingerprint: session.fingerprint
         });
 
-        this.scheduleSessionCleanup(sessionId);
+        this.scheduleSessionCleanup(user, sessionId);
 
         user.identified = true;
         user.sessionId = sessionId
@@ -270,12 +288,15 @@ class Connection {
 
         this.gateway.updateUser(user);
 
+        const resumeURL = new URL(`${process.env.STATE == 'production' ? 'wss' : 'ws'}://${process.env.STATE == 'production' ? 'api.ryuzaki.cloud' : 'localhost:8080'}/?session=${sessionId}`);
+
         this.send(user, {
             op: WebsocketOpcodes.Dispatch,
             t: WebSocketShardEvents.Ready,
             d: {
                 session_id: user.sessionId,
                 fingerprint: session.fingerprint,
+                resume_url: resumeURL,
                 user_ids: ids,
                 _trace: ['gateway-ready']
             }
@@ -307,7 +328,13 @@ class Connection {
     private async handleResume(user: WebSocketUser, sessionId: string, sequence: number) {
         const session = this.sessions.get(sessionId);
 
-        if (session && user.sessionId === sessionId && user.sequence === (sequence)) {
+        console.log(user.sequence, sequence);
+        console.log(user.sessionId, sessionId);
+
+        if (!session) return this.sendInvalidSession(user);
+
+        if (session && user.sessionId === sessionId && user.sequence === sequence) {
+            session.lastAccess = new Date();
             this.clearSessionTimeout(sessionId);
 
             user.sessionId = sessionId;
@@ -344,14 +371,16 @@ class Connection {
         }
     }
 
-    private scheduleSessionCleanup(sessionId: string) {
+    private scheduleSessionCleanup(user: WebSocketUser, sessionId: string, timeoutDuration: number = 30 * 60_000) {
         this.clearSessionTimeout(sessionId);
-
+    
         const timeout = setTimeout(() => {
             this.sessions.delete(sessionId);
-            Logger.debug(`Session ${sessionId} cleaned up`, [Connection.name]);
-        }, 60_000 * 30);
-
+            this.removeConnection(user);
+            this.gateway.removeUser(user.ws);
+            Logger.debug(`Session ${sessionId} cleaned up after ${timeoutDuration / 60000} minutes`, [Connection.name]);
+        }, timeoutDuration);
+    
         this.sessionTimeouts.set(sessionId, timeout);
     }
 
@@ -408,7 +437,6 @@ class Connection {
             d: {
                 guild_id: process.env.GUILD_ID,
                 user_ids: data.user_ids,
-                with_profile: true,
                 presences: true,
                 limit: 0
             }
@@ -526,41 +554,42 @@ class Connection {
     }
 
     private destroy(user: WebSocketUser, code?: number, reason?: string) {
-        if (code === 4009) {
-            this.notifyReconnectStrategy(user, 'resume', 'heartbeat_timeout');
+        if (code === 4009 || code === 1013) {
+            this.notifyReconnectStrategy(user, 'resume', 'You may resume the session within 5 minutes');
+            
+            if (user.sessionId) {
+                this.scheduleSessionCleanup(user, user.sessionId, Connection.RESUME_SESSION_TIMEOUT);
+            }
         }
-        else if (code === 1013) {
-            this.notifyReconnectStrategy(user, 'reconnect', 'server_overload');
+        else {
+            if (code === 4004) {
+                this.handleSessionInvalidation(user, 'authentication_failure');
+            } else {
+                this.notifyReconnectStrategy(user, 'reconnect', 'Please reconnect');
+            }
+            if (user.sessionId) {
+                this.scheduleSessionCleanup(user, user.sessionId);
+            }
         }
-        else if (code === 4004) {
-            this.handleSessionInvalidation(user, 'authentication_failure');
-        }
-
-        if (user.sessionId) {
-            this.scheduleSessionCleanup(user.sessionId);
-        }
-
+    
         const controller = new AbortController();
         this.abortControllers.set(user.id, controller);
-
+    
         const cleanup = () => {
             clearTimeout(timeout);
             this.clearPingInterval(user);
             this.removeListeners(user);
-            this.removeConnection(user);
-            this.gateway.removeUser(user.ws);
             this.abortControllers.delete(user.id);
         };
-
+    
         const timeout = setTimeout(() => {
             user.ws.terminate();
             cleanup();
         }, 5000).unref();
-
+    
         if (user.ws.readyState === WebSocket.OPEN) {
             user.ws.close(code, reason);
         }
-        cleanup();
     }
 
     private send(user: WebSocketUser, payload: WebsocketReceivePayload) {

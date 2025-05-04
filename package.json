@@ -29,6 +29,7 @@
 		"express": "^5.1.0",
 		"node-cache": "^5.1.2",
 		"rate-limiter-flexible": "^7.0.0",
+		"tls": "^0.0.1",
 		"useragent": "^2.3.0",
 		"winston": "^3.17.0",
 		"ws": "^8.18.1",
